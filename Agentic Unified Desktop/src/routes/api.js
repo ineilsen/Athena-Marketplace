@@ -178,6 +178,39 @@ router.post('/v1/external-chat', async (req, res) => {
 		const customerContext = source === 'marketplace' ? { marketplace: true } : {};
 		const insights = await fetchInsights({ customerId, conversationHistory, requestedWidgets, customerContext });
 
+		// Marketplace fast-path: answer read-only M365 licensing questions via MCP/Graph (avoid prompt-simulated numbers).
+		try {
+			const msg = String(message || '');
+			const lower = msg.toLowerCase();
+			const isLicenseCountQuestion = /how many|number of|count/i.test(lower) && /licen[cs]e/i.test(lower);
+			const mentionsM365 = /m365|microsoft\s*365|office\s*365/i.test(lower);
+			const asksE5 = /\be5\b/.test(lower);
+			const asksE3 = /\be3\b/.test(lower);
+			const asksNoTeams = /no\s*teams|without\s*teams/i.test(lower);
+			const asksTeamsEnterprise = /teams\s+enterprise/i.test(lower);
+
+			if (source === 'marketplace' && isLicenseCountQuestion && (mentionsM365 || asksE5 || asksE3 || asksTeamsEnterprise)) {
+				let license = null;
+				if (asksTeamsEnterprise) license = 'Microsoft Teams Enterprise';
+				else if (asksE3) license = 'Microsoft 365 E3';
+				else if (asksE5 && asksNoTeams) license = 'Microsoft 365 E5 (no Teams)';
+				else if (asksE5) license = 'Microsoft 365 E5';
+
+				const actionQuery = `M365_ACTION: ${JSON.stringify({ intent: 'get_license_counts', license })}`;
+				const tenantDomain = process.env.AZURE_TENANT_DOMAIN || process.env.M365_TENANT_DOMAIN || '';
+				logger.info('Marketplace M365 license count query detected; calling MCP/Graph', { customerId, license });
+				const m365 = await executeM365Action({ actionQuery, conversationHistory, tenantDomain });
+				if (m365?.summary) {
+					insights.LIVE_RESPONSE = { ...(insights.LIVE_RESPONSE || {}), draft: m365.summary };
+					insights.M365 = m365;
+					// If we can answer deterministically, prefer returning directly rather than re-writing via refineReply.
+					insights.__forceBotReply = m365.summary;
+				}
+			}
+		} catch (e) {
+			logger.warn('Marketplace M365 fast-path failed', { message: e.message });
+		}
+
 		// Build customer 360 object (prefer full CUSTOMER_360 payload if present)
 		const baseC360 = insights.CUSTOMER_360 || {};
 		const customer360 = {
@@ -268,6 +301,9 @@ router.post('/v1/external-chat', async (req, res) => {
 		const SUPPRESS_AUTO = /^(1|true|yes)$/i.test((process.env.SUPPRESS_AUTO_BOT_REPLY || '').trim());
 		let botReply = undefined;
 		if (!SUPPRESS_AUTO) {
+			if (typeof insights.__forceBotReply === 'string' && insights.__forceBotReply) {
+				botReply = insights.__forceBotReply;
+			} else {
 			const prompts = Array.isArray(insights.LIVE_PROMPTS) ? insights.LIVE_PROMPTS : [];
 			const empathetic = prompts[0]?.value || prompts[0]?.label || '';
 			const liveDraft = insights.LIVE_RESPONSE?.draft || '';
@@ -300,6 +336,7 @@ router.post('/v1/external-chat', async (req, res) => {
 				const candidate = empathetic || 'Let me check this and guide you through the steps.';
 				const customerData = { id: customerId, segment: 'VIP', tenureMonths: 38, ...customerContext };
 				botReply = await refineReply({ conversationHistory, draft: candidate, customerId, customerData, actions: actionTitles });
+			}
 			}
 		}
 		const traceId = `${Date.now()}-${Math.random().toString(36).slice(2,8)}`;

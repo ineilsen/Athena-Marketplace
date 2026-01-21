@@ -1,6 +1,12 @@
 import logger from '../utils/logger.js';
 import { callM365Tool } from './m365McpClient.js';
 
+const READ_ONLY_INTENTS = new Set([
+	'get_license_counts',
+	'license_counts',
+	'list_subscribed_skus'
+]);
+
 function hasCustomerConfirmation(conversationHistory = []) {
 	// Look at the most recent customer utterance.
 	const lastCustomer = [...(conversationHistory || [])].reverse().find(m => String(m?.role || '').toLowerCase() === 'customer');
@@ -22,6 +28,10 @@ function parseM365ActionPayload(actionQuery = '') {
 	} catch {
 		return null;
 	}
+}
+
+function isReadOnlyIntent(intent) {
+	return READ_ONLY_INTENTS.has(String(intent || '').toLowerCase());
 }
 
 function normalizeConfidence(ok) {
@@ -72,6 +82,46 @@ async function resolveSkuIdsByIntent(licenseLabel, subscribedSkus = []) {
 	return hit?.id ? [hit.id] : [];
 }
 
+function findSkuByLabel(licenseLabel, subscribedSkus = []) {
+	const label = String(licenseLabel || '').trim().toLowerCase();
+	if (!label) return null;
+
+	const candidates = subscribedSkus.map(s => ({
+		sku: s,
+		part: String(s.skuPartNumber || '')
+	}));
+
+	const patterns = [
+		{ key: 'e3', re: /ENTERPRISEPACK|O365_E3|SPE_E3/i },
+		{ key: 'e5', re: /SPE_E5|ENTERPRISEPREMIUM/i },
+		{ key: 'e5_no_teams', re: /NO_TEAMS|SPE_E5.*NO|SPE_E5_NO/i },
+		{ key: 'teams_enterprise', re: /TEAMS.*ENTERPRISE|TEAMS_ENTERPRISE/i }
+	];
+
+	let wanted = null;
+	if (label === 'e3' || label.includes('microsoft 365 e3') || label.includes('office 365 e3')) wanted = 'e3';
+	else if (label === 'e5' || label.includes('microsoft 365 e5') || label.includes('office 365 e5')) wanted = label.includes('no teams') ? 'e5_no_teams' : 'e5';
+	else if (label.includes('no teams')) wanted = 'e5_no_teams';
+	else if (label.includes('teams enterprise')) wanted = 'teams_enterprise';
+
+	const pat = patterns.find(p => p.key === wanted)?.re;
+	if (pat) {
+		const hit = candidates.find(c => pat.test(c.part));
+		return hit?.sku || null;
+	}
+
+	const token = label.replace(/\s+/g, '_').toUpperCase();
+	const hit = candidates.find(c => c.part.toUpperCase().includes(token));
+	return hit?.sku || null;
+}
+
+function formatSkuCounts(sku) {
+	const enabled = Number(sku?.prepaidUnits?.enabled ?? 0);
+	const consumed = Number(sku?.consumedUnits ?? 0);
+	const remaining = Math.max(0, enabled - consumed);
+	return { enabled, consumed, remaining };
+}
+
 export async function executeM365Action({ actionQuery, conversationHistory, tenantDomain }) {
 	const payload = parseM365ActionPayload(actionQuery);
 	if (!payload) {
@@ -83,8 +133,10 @@ export async function executeM365Action({ actionQuery, conversationHistory, tena
 		});
 	}
 
-	// Gate on customer confirmation (demo requirement).
-	if (!hasCustomerConfirmation(conversationHistory)) {
+	const intent = String(payload.intent || '').toLowerCase();
+
+	// Gate on customer confirmation for change actions; allow read-only queries.
+	if (!isReadOnlyIntent(intent) && !hasCustomerConfirmation(conversationHistory)) {
 		return buildResult({
 			shortDescription: 'Awaiting customer confirmation',
 			summary: 'Customer has not confirmed yet. Ask the customer to confirm before executing Microsoft 365 changes.',
@@ -93,7 +145,6 @@ export async function executeM365Action({ actionQuery, conversationHistory, tena
 		});
 	}
 
-	const intent = String(payload.intent || '').toLowerCase();
 	const upn = payload.upn || payload.userPrincipalName;
 	const displayName = payload.displayName;
 	const usageLocation = payload.usageLocation || 'GB';
@@ -115,6 +166,57 @@ export async function executeM365Action({ actionQuery, conversationHistory, tena
 					{ label: 'organizationId', value: info?.organizationId || '—' }
 				],
 				confidence: normalizeConfidence(!!info?.organizationId)
+			});
+		}
+
+		if (intent === 'get_license_counts' || intent === 'license_counts') {
+			const skuLabel = payload.license || payload.sku || payload.skuPartNumber || payload.product;
+			const skus = await callM365Tool('graph.listSubscribedSkus', {});
+			const arr = Array.isArray(skus) ? skus : [];
+			const sku = skuLabel ? findSkuByLabel(skuLabel, arr) : null;
+			if (!sku) {
+				return buildResult({
+					shortDescription: 'License not found',
+					summary: skuLabel
+						? `Could not find a subscribed SKU matching “${skuLabel}”.`
+						: 'No license specified; provide a license label like “Microsoft 365 E5”.',
+					findings: [
+						{ label: 'requested', value: String(skuLabel || '—') },
+						{ label: 'hint', value: 'Try: Microsoft 365 E5, Microsoft 365 E3, Microsoft 365 E5 (no Teams), Microsoft Teams Enterprise' }
+					],
+					confidence: 0.4
+				});
+			}
+			const { enabled, consumed, remaining } = formatSkuCounts(sku);
+			const part = String(sku?.skuPartNumber || '');
+			return buildResult({
+				shortDescription: 'License counts',
+				summary: `Microsoft 365 licenses for ${part}: ${enabled} total, ${consumed} assigned, ${remaining} available.`,
+				findings: [
+					{ label: 'skuPartNumber', value: part || '—' },
+					{ label: 'totalEnabled', value: String(enabled) },
+					{ label: 'assignedConsumed', value: String(consumed) },
+					{ label: 'availableRemaining', value: String(remaining) }
+				],
+				confidence: normalizeConfidence(true)
+			});
+		}
+
+		if (intent === 'list_subscribed_skus') {
+			const skus = await callM365Tool('graph.listSubscribedSkus', {});
+			const arr = Array.isArray(skus) ? skus : [];
+			// Keep the summary compact; provide details in findings.
+			return buildResult({
+				shortDescription: 'Subscribed SKUs',
+				summary: `Found ${arr.length} subscribed SKUs in the tenant.`,
+				findings: arr.slice(0, 25).map(s => {
+					const { enabled, consumed, remaining } = formatSkuCounts(s);
+					return {
+						label: String(s?.skuPartNumber || 'SKU'),
+						value: `${enabled} total, ${consumed} assigned, ${remaining} available`
+					};
+				}),
+				confidence: normalizeConfidence(true)
 			});
 		}
 
