@@ -31,3 +31,8 @@ logs/
 
 # Mac metadata
 **/.DS_Store
+
+# Local workspace / untracked demos
+Athena Cognitive Unified Desktop-Vodafone.code-workspace
+Agentic CX Demo/
+Athena Chat Client/
