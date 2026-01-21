@@ -1,0 +1,12 @@
+{
+  "broadband": ["broadband", "fiber", "fibre", "internet", "wifi", "fttp", "dsl", "vdsl", "adsl"],
+  "mobile": ["mobile", "cell", "sim", "handset", "5g", "4g"],
+  "tv": ["tv", "television", "settop", "set-top", "set top", "decoder", "settopbox"],
+  "marketplace": [
+    "marketplace", "vodafone marketplace", "subscription", "subscriptions", "licence", "license", "licences", "licenses",
+    "upgrade", "downgrade", "renewal", "renew", "cancel", "billing", "invoice", "invoices", "charge", "charges",
+    "order", "order status", "purchase", "refund", "payment", "trial", "free trial",
+    "webex", "microsoft 365", "exchange online", "power bi", "visio", "project", "entra id", "lookout", "teams rooms",
+    "apps", "app store", "seat count", "assign licence", "assign license", "add user", "remove user"
+  ]
+}

@@ -1,0 +1,31 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Env / secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Logs
+logs/
+*.log
+
+# Build outputs
+/dist
+/build
+/out
+/coverage
+
+# Mac metadata
+**/.DS_Store

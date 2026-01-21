@@ -1,0 +1,7 @@
+Using the following knowledge article data and the live conversation, craft a concise, empathetic reply for a Vodafone Business Marketplace customer. Keep under 120 words, UK English, and provide precise steps or links where relevant (e.g., where to change licences, view invoices, or track orders). Return JSON only: {"draft":"..."}
+
+Article Title: {{ARTICLE_TITLE}}
+Summary: {{ARTICLE_SUMMARY}}
+Steps: {{ARTICLE_STEPS}}
+Conversation:
+{{conversation}}
