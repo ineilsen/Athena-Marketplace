@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { fetchInsights, refineReply } from '../services/llmOrchestrator.js';
 import { deriveServiceContext } from '../config/serviceClassification.js';
 import logger from '../utils/logger.js';
+import { executeM365Action } from '../services/m365ActionExecutor.js';
 
 const router = Router();
 
@@ -47,6 +48,25 @@ router.post('/v1/get-insights', async (req, res) => {
 		if (!Array.isArray(requestedWidgets) || requestedWidgets.length === 0) {
 			logger.warn('get-insights validation failed: requestedWidgets invalid');
 			return res.status(400).json({ error: 'requestedWidgets must be non-empty array' });
+		}
+
+		// Fast-path: execute Microsoft 365 admin actions via MCP/Graph when the action query includes M365_ACTION payload.
+		if (requestedWidgets.includes('AGENT_NETWORK_EXECUTE')) {
+			const execVars = extraVarsMap?.AGENT_NETWORK_EXECUTE;
+			const actionQuery = execVars?.ACTION_QUERY || '';
+			if (typeof actionQuery === 'string' && actionQuery.includes('M365_ACTION:')) {
+				// Record as executed for UI badges.
+				if (execVars?.ACTION_QUERY) recordExecutedAction(customerId, execVars.ACTION_ID, execVars.ACTION_QUERY);
+
+				const tenantDomain = process.env.AZURE_TENANT_DOMAIN || process.env.M365_TENANT_DOMAIN || '';
+				const result = await executeM365Action({ actionQuery, conversationHistory, tenantDomain });
+				// Provide a minimal LIVE_RESPONSE draft so UI can insert text quickly.
+				const draft = result?.summary ? `${result.summary}` : 'Microsoft 365 action processed.';
+				return res.json({
+					AGENT_NETWORK_EXECUTE: result,
+					LIVE_RESPONSE: { draft }
+				});
+			}
 		}
 		// If execution requested, record before planning refresh
 		if (requestedWidgets.includes('AGENT_NETWORK_EXECUTE')) {

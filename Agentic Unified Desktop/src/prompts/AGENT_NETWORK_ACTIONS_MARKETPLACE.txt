@@ -11,7 +11,9 @@ Output JSON array (no prose) where each item has:
 - id: stable identifier (UPPER_SNAKE or kebab-case)
 - title: short actionable title
 - rationale: brief why/what
-- query: natural language query to run against internal systems
+- query: natural language query to run against internal systems.
+	If the action is a Microsoft 365 admin change, include a machine-readable payload at the end:
+	`M365_ACTION: {"intent":"assign_license"|"create_user"|"disable_user"|"update_user"|"discover_tenant", ...}`
 
 Examples of good Marketplace actions:
 - Check licence status and seat counts
@@ -20,5 +22,11 @@ Examples of good Marketplace actions:
 - Verify trial/entitlements expiry windows
 - Inspect invoice anomalies
 - Open support ticket with full context
+
+Examples of Microsoft 365 admin actions (use M365_ACTION payload):
+- Assign Microsoft 365 E3 / Microsoft 365 E5 / Microsoft 365 E5 (no Teams) / Microsoft Teams Enterprise
+	(include fields: upn, license)
+- Create a new user and assign license
+	(include fields: upn, displayName, usageLocation, license)
 
 Return ONLY valid minified JSON array.

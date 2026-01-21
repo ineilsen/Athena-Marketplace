@@ -1,0 +1,16 @@
+{
+  "name": "m365-admin-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP server exposing Microsoft Graph transactional admin tools + Microsoft 365 Admin help/agent assignment tools",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@azure/msal-node": "^3.3.0",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "axios": "^1.7.2"
+  }
+}
