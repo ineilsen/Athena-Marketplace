@@ -1,5 +1,6 @@
 import logger from '../utils/logger.js';
 import { callM365Tool } from './m365McpClient.js';
+import { resolveTenantSkuByUtterance } from './m365EntityExtractor.js';
 
 const READ_ONLY_INTENTS = new Set([
 	'get_license_counts',
@@ -188,10 +189,17 @@ export async function executeM365Action({ actionQuery, conversationHistory, tena
 
 		if (intent === 'get_license_counts' || intent === 'license_counts') {
 			const skuLabel = payload.license || payload.sku || payload.skuPartNumber || payload.product;
+			const utterance = payload.utterance || skuLabel;
 			const skus = await callM365Tool('graph.listSubscribedSkus', {});
 			if (isToolError(skus)) return buildToolErrorResult('graph.listSubscribedSkus', skus);
 			const arr = Array.isArray(skus) ? skus : [];
-			const sku = skuLabel ? findSkuByLabel(skuLabel, arr) : null;
+			let sku = skuLabel ? findSkuByLabel(skuLabel, arr) : null;
+			if (!sku && utterance) {
+				const resolved = await resolveTenantSkuByUtterance({ utterance, subscribedSkus: arr });
+				if (resolved?.skuPartNumber) {
+					sku = arr.find(s => String(s?.skuPartNumber || '') === resolved.skuPartNumber) || null;
+				}
+			}
 			if (!sku) {
 				return buildResult({
 					shortDescription: 'License not found',
@@ -200,7 +208,8 @@ export async function executeM365Action({ actionQuery, conversationHistory, tena
 						: 'No license specified; provide a license label like “Microsoft 365 E5”.',
 					findings: [
 						{ label: 'requested', value: String(skuLabel || '—') },
-						{ label: 'hint', value: 'Try: Microsoft 365 E5, Microsoft 365 E3, Microsoft 365 E5 (no Teams), Microsoft Teams Enterprise' }
+						{ label: 'hint', value: 'Try: Microsoft 365 E5, Microsoft 365 E3, Microsoft 365 E5 (no Teams), Microsoft Teams Enterprise' },
+						{ label: 'hint2', value: 'If your tenant uses different SKU names, use list_subscribed_skus or ensure LLM is configured for fuzzy mapping.' }
 					],
 					confidence: 0.4
 				});
@@ -280,7 +289,15 @@ export async function executeM365Action({ actionQuery, conversationHistory, tena
 			const skuLabel = payload.license || payload.sku || payload.skuPartNumber;
 			const skus = await callM365Tool('graph.listSubscribedSkus', {});
 			if (isToolError(skus)) return buildToolErrorResult('graph.listSubscribedSkus', skus);
-			const addSkuIds = await resolveSkuIdsByIntent(skuLabel, Array.isArray(skus) ? skus : []);
+			const skuArr = Array.isArray(skus) ? skus : [];
+			let addSkuIds = await resolveSkuIdsByIntent(skuLabel, skuArr);
+			if (!addSkuIds.length && skuLabel) {
+				const resolved = await resolveTenantSkuByUtterance({ utterance: skuLabel, subscribedSkus: skuArr });
+				if (resolved?.skuPartNumber) {
+					const hit = skuArr.find(s => String(s?.skuPartNumber || '') === resolved.skuPartNumber);
+					if (hit?.skuId) addSkuIds = [hit.skuId];
+				}
+			}
 			if (!addSkuIds.length) {
 				return buildResult({
 					shortDescription: 'License not found',

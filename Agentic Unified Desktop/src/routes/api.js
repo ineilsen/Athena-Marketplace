@@ -66,7 +66,7 @@ router.post('/v1/get-insights', async (req, res) => {
 				else if (/\be3\b/i.test(actionText)) license = 'Microsoft 365 E3';
 				else if (/\be5\b/i.test(actionText) && /no\s*teams|without\s*teams/i.test(actionText)) license = 'Microsoft 365 E5 (no Teams)';
 				else if (/\be5\b/i.test(actionText)) license = 'Microsoft 365 E5';
-				effectiveActionQuery = `M365_ACTION: ${JSON.stringify({ intent: 'get_license_counts', license })}`;
+				effectiveActionQuery = `M365_ACTION: ${JSON.stringify({ intent: 'get_license_counts', license, utterance: actionText })}`;
 			}
 
 			if (typeof effectiveActionQuery === 'string' && effectiveActionQuery.includes('M365_ACTION:')) {
@@ -212,7 +212,7 @@ router.post('/v1/external-chat', async (req, res) => {
 				else if (asksE5 && asksNoTeams) license = 'Microsoft 365 E5 (no Teams)';
 				else if (asksE5) license = 'Microsoft 365 E5';
 
-				const actionQuery = `M365_ACTION: ${JSON.stringify({ intent: 'get_license_counts', license })}`;
+				const actionQuery = `M365_ACTION: ${JSON.stringify({ intent: 'get_license_counts', license, utterance: msg })}`;
 				const tenantDomain = process.env.AZURE_TENANT_DOMAIN || process.env.M365_TENANT_DOMAIN || '';
 				logger.info('Marketplace M365 license count query detected; calling MCP/Graph', { customerId, license });
 				const m365 = await executeM365Action({ actionQuery, conversationHistory, tenantDomain });

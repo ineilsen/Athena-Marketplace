@@ -541,3 +541,11 @@ export async function refineReply({ conversationHistory = [], draft = '', custom
 		return draft;
 	}
 }
+
+// Utility: allow internal services (non-widget) to run a forced-JSON LLM call.
+// Returns parsed object or null when LLM is not configured/unavailable.
+export async function runUtilityLLMJson({ prompt, temperature = 0.0 }) {
+	const raw = await callLLM({ prompt, forceJson: true, temperature: Number(temperature ?? 0.0), retry: 2 });
+	if (!raw) return null;
+	try { return JSON.parse(raw); } catch { return salvageJson(raw); }
+}
