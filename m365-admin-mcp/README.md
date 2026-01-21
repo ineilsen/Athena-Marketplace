@@ -22,7 +22,7 @@ MCP server exposing tools for Microsoft 365 administration.
 ## Environment
 
 Required for Graph:
-- `AZURE_TENANT_DOMAIN` (e.g. `CRMbc395940.onmicrosoft.com`)
+- `AZURE_TENANT_DOMAIN` (e.g. `your-tenant.onmicrosoft.com`)
 - `AZURE_CLIENT_ID`
 - `AZURE_CLIENT_SECRET`
 

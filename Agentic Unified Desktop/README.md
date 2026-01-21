@@ -1,6 +1,3 @@
-<<<<<<< HEAD
-# athena
-=======
 # Athena Cognitive Desktop (Agentic Unified Desktop)
 
 A modular, real-time SPA for contact-center agents. It serves a web UI and an API that orchestrates insights with either OpenAI/Azure OpenAI or Neuro® SAN, and streams Customer 360 updates to clients via Server-Sent Events (SSE).

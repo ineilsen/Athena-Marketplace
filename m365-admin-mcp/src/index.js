@@ -210,7 +210,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 		}
 
 		if (!tenantDomain) {
-			throw new Error('Missing AZURE_TENANT_DOMAIN (e.g. CRMbc395940.onmicrosoft.com)');
+						throw new Error('Missing AZURE_TENANT_DOMAIN (e.g. your-tenant.onmicrosoft.com)');
 		}
 		const token = await getGraphToken({ tenantDomain });
 
