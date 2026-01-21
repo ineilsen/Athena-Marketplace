@@ -34,7 +34,7 @@ async function callLLM({ prompt, temperature = 0.4, forceJson = false, retry = 2
 		...(forceJson ? { response_format: { type: 'json_object' } } : {})
 	};
 
-	const timeoutMs = Number(process.env.LLM_REQUEST_TIMEOUT_MS || 20000);
+	const timeoutMs = Number(process.env.LLM_REQUEST_TIMEOUT_MS || 60000);
 	const agent = url.startsWith('https') ? new https.Agent({ keepAlive: true }) : new http.Agent({ keepAlive: true });
 
 	for (let attempt = 1; attempt <= retry; attempt++) {
@@ -232,7 +232,12 @@ async function callNeuroSan({ widgetType, conversationHistory, extraVars, custom
 	if (widgetType === 'AGENT_NETWORK_ACTIONS') {
 		const convo = conversationHistory?.map(m=>`${m.role.toUpperCase()}: ${m.content}`).join('\n')||'';
 		const prev = extraVars?.PREVIOUS_ACTIONS ? `\nPreviously executed actions:\n${extraVars.PREVIOUS_ACTIONS}` : '';
-		text = `Plan 3-6 concrete internal investigative actions with title, rationale, id, and a natural language query. Keep concise.\nConversation so far:\n${convo}${prev}`;
+		text = `Plan 3-6 concrete internal investigative actions with title, rationale, id, and a natural language query. Keep concise.
+Coherence rules for Microsoft 365 licensing:
+- Include UPN/email in any M365-related action when present.
+- One SKU per action; never combine labels like "E3, E5".
+- Order: check user license assignment -> check license availability -> assign license (only if needed).
+Conversation so far:\n${convo}${prev}`;
 	} else if (widgetType === 'AGENT_NETWORK_EXECUTE') {
 		const customerData = { id: customerId, segment: 'VIP', tenureMonths: 38 };
 		const isMarketplace = isMarketplaceConversation(conversationHistory);
@@ -372,9 +377,9 @@ export async function fetchInsights({ customerId, conversationHistory, requested
 	const isMarketplace = isMarketplaceConversation(conversationHistory) || !!customerContext.marketplace;
 	const tasks = requestedWidgets.map(async (widgetType) => {
 		const forceJson = jsonWidgets.has(widgetType);
-		// Policy: Action list is ALWAYS produced by OpenAI; execution may be Neuro‑San based on dropdown
+		// Respect the UI engine selection (OpenAI vs Neuro‑San) per-widget.
 		const effectiveProvider = (providerMap?.[widgetType] || (process.env.AGENT_ACTIONS_PROVIDER || 'openai')).toLowerCase();
-		const useNeuroSan = ['AGENT_NETWORK_EXECUTE','LIVE_RESPONSE','NEXT_BEST_ACTION'].includes(widgetType) && effectiveProvider === 'neurosan';
+		const useNeuroSan = ['AGENT_NETWORK_ACTIONS','AGENT_NETWORK_EXECUTE','LIVE_RESPONSE','NEXT_BEST_ACTION'].includes(widgetType) && effectiveProvider === 'neurosan';
 		if (useNeuroSan) {
 			try {
 				const ns = await callNeuroSan({ widgetType, conversationHistory, extraVars: extraVarsMap[widgetType], customerId });
@@ -400,7 +405,17 @@ export async function fetchInsights({ customerId, conversationHistory, requested
 			// Normalize AGENT_NETWORK_ACTIONS into {actions:[...]}
 			if (widgetType === 'AGENT_NETWORK_ACTIONS') {
 				let actions = [];
-				const src = Array.isArray(parsed) ? parsed : (parsed.actions || parsed.items || parsed.list || []);
+				// Azure JSON mode often forces an object wrapper; accept a variety of common keys.
+				let src = null;
+				if (Array.isArray(parsed)) src = parsed;
+				else if (parsed && typeof parsed === 'object') {
+					src = parsed.actions || parsed.items || parsed.list || parsed.results || parsed.result || parsed.data || null;
+					// If still not found, try to locate the first array value in the object.
+					if (!Array.isArray(src)) {
+						const v = Object.values(parsed).find(x => Array.isArray(x));
+						if (Array.isArray(v)) src = v;
+					}
+				}
 				if (Array.isArray(src)) {
 					actions = src.slice(0,6).map((a,i)=>({
 						id: a.id || a.actionId || `action-${i+1}`,
@@ -408,6 +423,18 @@ export async function fetchInsights({ customerId, conversationHistory, requested
 						rationale: a.rationale || a.reason || a.description || '',
 						query: a.query || a.prompt || a.value || a.text || ''
 					}));
+				}
+				// If the model returned an object with numeric keys ("0","1",...) treat its values as actions.
+				if (!actions.length && parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+					const vals = Object.keys(parsed).every(k => /^\d+$/.test(k)) ? Object.values(parsed) : null;
+					if (Array.isArray(vals)) {
+						actions = vals.slice(0,6).map((a,i)=>({
+							id: a?.id || a?.actionId || `action-${i+1}`,
+							title: a?.title || a?.label || a?.name || `Action ${i+1}`,
+							rationale: a?.rationale || a?.reason || a?.description || '',
+							query: a?.query || a?.prompt || a?.value || a?.text || ''
+						}));
+					}
 				}
 				// Fallback defaults if empty — ensure UI never shows "No actions suggested."
 				if (!actions.length) {

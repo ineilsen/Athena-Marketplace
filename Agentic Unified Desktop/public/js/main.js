@@ -109,8 +109,8 @@ function initEventBridges() {
 document.addEventListener('DOMContentLoaded', () => {
 	console.debug('[Main] DOMContentLoaded - booting modules');
 	customerPanel.init();
-	aiPanel.init();
 	conversationPanel.init();
+	aiPanel.init();
 	initEventBridges();
 	updateCustomerBadge();
 	initialLoad();
@@ -155,6 +155,7 @@ document.addEventListener('DOMContentLoaded', () => {
 							if (insights.SERVICE_PEDIA) aiPanel.updateServicePedia(insights.SERVICE_PEDIA);
 							if (insights.SERVICE_PEDIA_V2) aiPanel.updateServicePedia(insights.SERVICE_PEDIA_V2);
 							if (insights.LIVE_RESPONSE) aiPanel.updateLiveResponse(insights.LIVE_RESPONSE);
+							if (insights.AGENT_NETWORK_ACTIONS) aiPanel.updateAgentNetworkActions(insights.AGENT_NETWORK_ACTIONS);
 							if (insights.MINI_INSIGHTS) aiPanel.updateMiniInsights(insights.MINI_INSIGHTS);
 							if (insights.ACCOUNT_HEALTH) customerPanel.updateHealthScore(insights.ACCOUNT_HEALTH);
 							if (insights.CUSTOMER_360 || insights.CUSTOMER_360_DEMOGRAPHICS) {

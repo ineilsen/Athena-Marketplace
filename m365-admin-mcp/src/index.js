@@ -51,6 +51,34 @@ function graphBase() {
 	return (process.env.GRAPH_API_BASE || 'https://graph.microsoft.com/v1.0').replace(/\/+$/, '');
 }
 
+function formatAxiosError(err) {
+	try {
+		const status = err?.response?.status;
+		const statusText = err?.response?.statusText;
+		const code = err?.code;
+		const method = err?.config?.method;
+		const url = err?.config?.url;
+		const data = err?.response?.data;
+		let response = undefined;
+		if (data != null) {
+			if (typeof data === 'string') response = data.slice(0, 800);
+			else response = redactSecrets(data);
+		}
+		return {
+			kind: 'axios',
+			message: String(err?.message || 'Request failed'),
+			code,
+			status,
+			statusText,
+			method,
+			url,
+			response
+		};
+	} catch {
+		return { kind: 'axios', message: 'Request failed' };
+	}
+}
+
 async function graphGet(path, accessToken) {
 	const url = `${graphBase()}${path}`;
 	const resp = await axios.get(url, { headers: { Authorization: `Bearer ${accessToken}` } });
@@ -108,6 +136,27 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 					type: 'object',
 					properties: { userIdOrUpn: { type: 'string' } },
 					required: ['userIdOrUpn']
+				}
+			},
+			{
+				name: 'graph.getUserLicenses',
+				description: 'Get a user with license assignment fields (assignedLicenses/licenseAssignmentStates).',
+				inputSchema: {
+					type: 'object',
+					properties: { userIdOrUpn: { type: 'string' } },
+					required: ['userIdOrUpn']
+				}
+			},
+			{
+				name: 'graph.findUsersByDisplayNamePrefix',
+				description: 'Find users by displayName prefix (returns up to 5). Useful when only a name is known.',
+				inputSchema: {
+					type: 'object',
+					properties: {
+						displayNamePrefix: { type: 'string' },
+						top: { type: 'number' }
+					},
+					required: ['displayNamePrefix']
 				}
 			},
 			{
@@ -224,6 +273,23 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 				const data = await graphGet(`/users/${encodeURIComponent(userIdOrUpn)}?$select=id,displayName,userPrincipalName,accountEnabled,usageLocation`, token);
 				return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 			}
+			case 'graph.getUserLicenses': {
+				const userIdOrUpn = normalizeUpn(args?.userIdOrUpn);
+				const select = 'id,displayName,userPrincipalName,accountEnabled,usageLocation,assignedLicenses,licenseAssignmentStates,assignedPlans';
+				const data = await graphGet(`/users/${encodeURIComponent(userIdOrUpn)}?$select=${encodeURIComponent(select)}`, token);
+				return { content: [{ type: 'text', text: JSON.stringify(data) }] };
+			}
+			case 'graph.findUsersByDisplayNamePrefix': {
+				const prefix = String(args?.displayNamePrefix || '').trim();
+				if (!prefix) throw new Error('displayNamePrefix is required');
+				const top = Number.isFinite(Number(args?.top)) ? Math.max(1, Math.min(10, Number(args.top))) : 5;
+				// OData startswith; single quote must be doubled.
+				const safe = prefix.replace(/'/g, "''");
+				const filter = `$filter=startswith(displayName,'${safe}')`;
+				const select = '$select=id,displayName,userPrincipalName,accountEnabled';
+				const data = await graphGet(`/users?${filter}&${select}&$top=${top}`, token);
+				return { content: [{ type: 'text', text: JSON.stringify(data?.value || []) }] };
+			}
 			case 'graph.createUser': {
 				const userPrincipalName = normalizeUpn(args?.userPrincipalName);
 				const displayName = String(args?.displayName || '').trim();
@@ -293,10 +359,12 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 				throw new Error(`Unknown tool: ${name}`);
 		}
 	} catch (e) {
+		// Provide richer diagnostics for common network/auth failures.
+		const details = (e && (e.isAxiosError || e.response || e.code)) ? formatAxiosError(e) : undefined;
 		return {
 			content: [{
 				type: 'text',
-				text: JSON.stringify({ error: 'TOOL_ERROR', message: e.message })
+				text: JSON.stringify({ error: 'TOOL_ERROR', message: e.message, details })
 			}]
 		};
 	}

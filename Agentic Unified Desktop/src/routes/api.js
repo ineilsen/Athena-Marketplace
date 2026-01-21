@@ -36,6 +36,15 @@ function getConversationHistory(customerId){
 	return (conversationStore.get(customerId) || []).map(m => ({ role: m.role, content: m.content }));
 }
 
+function getLastCustomerUtterance(conversationHistory = []){
+	try {
+		const last = [...(conversationHistory || [])].reverse().find(m => String(m?.role || '').toLowerCase() === 'customer');
+		return String(last?.content || '').trim();
+	} catch(_) {
+		return '';
+	}
+}
+
 router.post('/v1/get-insights', async (req, res) => {
 	const start = Date.now();
 	if (logger.isDebug) logger.debug('POST /api/v1/get-insights', { requestedWidgets: req.body?.requestedWidgets, hasExtra: !!req.body?.extraVarsMap, providerMap: req.body?.providerMap });
@@ -57,6 +66,14 @@ router.post('/v1/get-insights', async (req, res) => {
 			const actionText = String(actionQuery || '');
 			const lower = actionText.toLowerCase();
 			const looksLikeLicenseCount = /licen[cs]e/.test(lower) && /(how many|number of|count|seat)/.test(lower) && /\be5\b|\be3\b|m365|microsoft\s*365|office\s*365/.test(lower);
+			const upnMatch = actionText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+			const upn = upnMatch ? upnMatch[0] : null;
+			const nameAfterFor = (() => {
+				const m = actionText.match(/\bfor\s+([A-Za-z][A-Za-z.'-]+(?:\s+[A-Za-z][A-Za-z.'-]+){0,2})\b/);
+				return m ? m[1].trim() : null;
+			})();
+			const looksLikeLicenseAssignmentCheck = /licen[cs]e/.test(lower) && /(assignment|assigned|verify|check|status)/.test(lower) && (!!upn || !!nameAfterFor);
+			const looksLikeLicenseAssign = /licen[cs]e/.test(lower) && /(assign|add\s+license|grant)/.test(lower) && !!upn;
 
 			let effectiveActionQuery = actionText;
 			if (!effectiveActionQuery.includes('M365_ACTION:') && looksLikeLicenseCount) {
@@ -68,8 +85,82 @@ router.post('/v1/get-insights', async (req, res) => {
 				else if (/\be5\b/i.test(actionText)) license = 'Microsoft 365 E5';
 				effectiveActionQuery = `M365_ACTION: ${JSON.stringify({ intent: 'get_license_counts', license, utterance: actionText })}`;
 			}
+			if (!effectiveActionQuery.includes('M365_ACTION:') && looksLikeLicenseAssignmentCheck) {
+				// Synthesize payload for read-only license assignment check.
+				effectiveActionQuery = `M365_ACTION: ${JSON.stringify({ intent: 'check_user_license_assignments', upn, userPrincipalName: upn, displayName: nameAfterFor, utterance: actionText })}`;
+			}
+			if (!effectiveActionQuery.includes('M365_ACTION:') && looksLikeLicenseAssign) {
+				// Synthesize payload for license assignment (write action; executor will require customer confirmation).
+				let license = null;
+				if (/teams\s+enterprise/i.test(actionText)) license = 'Microsoft Teams Enterprise';
+				else if (/\be3\b/i.test(actionText)) license = 'Microsoft 365 E3';
+				else if (/\be5\b/i.test(actionText) && /no\s*teams|without\s*teams/i.test(actionText)) license = 'Microsoft 365 E5 (no Teams)';
+				else if (/\be5\b/i.test(actionText)) license = 'Microsoft 365 E5';
+				// If we still don't have a license label, keep it null; executor will report missing.
+				effectiveActionQuery = `M365_ACTION: ${JSON.stringify({ intent: 'assign_license', upn, userPrincipalName: upn, license, utterance: actionText })}`;
+			}
 
 			if (typeof effectiveActionQuery === 'string' && effectiveActionQuery.includes('M365_ACTION:')) {
+				// Ensure fuzzy mapping has the original customer utterance.
+				try {
+					const marker = 'M365_ACTION:';
+					const idx = effectiveActionQuery.indexOf(marker);
+					if (idx !== -1) {
+						const raw = effectiveActionQuery.slice(idx + marker.length).trim();
+						const payload = JSON.parse(raw);
+						// If planner emitted discover_tenant for a license action, override to the right intent.
+						if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+							const payloadIntent = String(payload.intent || '').toLowerCase();
+							const actionLower = String(actionText || '').toLowerCase();
+							const payloadUpn = payload.upn || payload.userPrincipalName;
+							const upn2 = payloadUpn || upn;
+							const looksLikeAssignCheck2 = /licen[cs]e/.test(actionLower) && /(assignment|assigned|verify|check|status)/.test(actionLower) && (!!upn2 || !!nameAfterFor);
+							const looksLikeAssign2 = /licen[cs]e/.test(actionLower) && /(assign|add\s+license|grant)/.test(actionLower) && !!upn2;
+							if (payloadIntent === 'discover_tenant' && looksLikeAssignCheck2) {
+								payload.intent = 'check_user_license_assignments';
+								if (upn2) {
+									payload.upn = upn2;
+									payload.userPrincipalName = upn2;
+								}
+								if (!payload.displayName && nameAfterFor) payload.displayName = nameAfterFor;
+								effectiveActionQuery = `${marker} ${JSON.stringify(payload)}`;
+							}
+							// If planner emitted assign_license for a verify/check action, downgrade to the read-only check intent.
+							if (payloadIntent === 'assign_license' && looksLikeAssignCheck2 && !looksLikeAssign2) {
+								payload.intent = 'check_user_license_assignments';
+								if (upn2) {
+									payload.upn = upn2;
+									payload.userPrincipalName = upn2;
+								}
+								if (!payload.displayName && nameAfterFor) payload.displayName = nameAfterFor;
+								// Remove any stale license field to avoid confusion.
+								delete payload.license;
+								effectiveActionQuery = `${marker} ${JSON.stringify(payload)}`;
+							}
+							if (payloadIntent === 'discover_tenant' && looksLikeAssign2) {
+								payload.intent = 'assign_license';
+								payload.upn = upn2;
+								payload.userPrincipalName = upn2;
+								// Best-effort license extraction from action text.
+								if (!payload.license) {
+									if (/teams\s+enterprise/i.test(actionText)) payload.license = 'Microsoft Teams Enterprise';
+									else if (/\be3\b/i.test(actionText)) payload.license = 'Microsoft 365 E3';
+									else if (/\be5\b/i.test(actionText) && /no\s*teams|without\s*teams/i.test(actionText)) payload.license = 'Microsoft 365 E5 (no Teams)';
+									else if (/\be5\b/i.test(actionText)) payload.license = 'Microsoft 365 E5';
+								}
+								effectiveActionQuery = `${marker} ${JSON.stringify(payload)}`;
+							}
+						}
+						const lastCustomerUtterance = getLastCustomerUtterance(conversationHistory);
+						if (payload && typeof payload === 'object' && !Array.isArray(payload) && !payload.utterance && lastCustomerUtterance) {
+							payload.utterance = lastCustomerUtterance;
+							effectiveActionQuery = `${marker} ${JSON.stringify(payload)}`;
+						}
+					}
+				} catch (_) {
+					// Non-fatal: proceed with original payload.
+				}
+
 				// Record as executed for UI badges.
 				if (execVars?.ACTION_QUERY) recordExecutedAction(customerId, execVars.ACTION_ID, execVars.ACTION_QUERY);
 

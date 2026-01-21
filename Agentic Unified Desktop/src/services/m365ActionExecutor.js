@@ -5,8 +5,27 @@ import { resolveTenantSkuByUtterance } from './m365EntityExtractor.js';
 const READ_ONLY_INTENTS = new Set([
 	'get_license_counts',
 	'license_counts',
-	'list_subscribed_skus'
+	'list_subscribed_skus',
+	'check_user_license_assignments',
+	'check_license_assignment',
+	'verify_license_assignment',
+	'get_user_licenses'
 ]);
+
+function splitLicenseCandidates(raw) {
+	if (!raw) return [];
+	if (Array.isArray(raw)) {
+		return [...new Set(raw.flatMap(splitLicenseCandidates).map(s => s.trim()).filter(Boolean))];
+	}
+	const s = String(raw).trim();
+	if (!s) return [];
+	// Common planner formatting: "A,B" or "A, B" or "A and B".
+	const parts = s
+		.split(/\s*(?:,|;|\/|\||\band\b|\bor\b)\s*/i)
+		.map(p => p.trim())
+		.filter(Boolean);
+	return [...new Set(parts.length ? parts : [s])];
+}
 
 function hasCustomerConfirmation(conversationHistory = []) {
 	// Look at the most recent customer utterance.
@@ -54,11 +73,13 @@ function isToolError(obj) {
 
 function buildToolErrorResult(toolName, toolResp) {
 	const msg = String(toolResp?.message || 'Unknown MCP/Graph error');
+	const details = toolResp?.details;
 	return buildResult({
 		shortDescription: 'Microsoft 365 / Graph call failed',
 		summary: msg,
 		findings: [
 			{ label: 'tool', value: toolName },
+			...(details ? [{ label: 'details', value: typeof details === 'string' ? details : JSON.stringify(details) }] : []),
 			{ label: 'hint', value: 'Check AZURE_TENANT_DOMAIN, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET in Agentic Unified Desktop/.env and ensure Graph app permissions + admin consent.' }
 		],
 		confidence: 0.2
@@ -76,10 +97,14 @@ async function resolveSkuIdsByIntent(licenseLabel, subscribedSkus = []) {
 	}));
 
 	const patterns = [
-		{ key: 'e3', re: /ENTERPRISEPACK|O365_E3|SPE_E3/i },
-		{ key: 'e5', re: /SPE_E5|ENTERPRISEPREMIUM/i },
-		{ key: 'e5_no_teams', re: /NO_TEAMS|SPE_E5.*NO|SPE_E5_NO/i },
-		{ key: 'teams_enterprise', re: /TEAMS.*ENTERPRISE|TEAMS_ENTERPRISE/i }
+		// E3
+		{ key: 'e3', re: /ENTERPRISEPACK|O365_E3|SPE_E3|(^|_)E3($|_)/i },
+		// E5 (cover common tenant variants beyond SPE_E5)
+		{ key: 'e5', re: /SPE_E5|ENTERPRISEPREMIUM|O365_E5|M365[_-]?E5|(^|_)E5($|_)/i },
+		// E5 without Teams
+		{ key: 'e5_no_teams', re: /NO[_-]?TEAMS|SPE_E5.*NO|SPE_E5_NO|E5.*NO[_-]?TEAMS/i },
+		// Teams Enterprise
+		{ key: 'teams_enterprise', re: /TEAMS.*ENTERPRISE|TEAMS_ENTERPRISE|TEAMS.*PREMIUM/i }
 	];
 
 	let wanted = null;
@@ -110,10 +135,10 @@ function findSkuByLabel(licenseLabel, subscribedSkus = []) {
 	}));
 
 	const patterns = [
-		{ key: 'e3', re: /ENTERPRISEPACK|O365_E3|SPE_E3/i },
-		{ key: 'e5', re: /SPE_E5|ENTERPRISEPREMIUM/i },
-		{ key: 'e5_no_teams', re: /NO_TEAMS|SPE_E5.*NO|SPE_E5_NO/i },
-		{ key: 'teams_enterprise', re: /TEAMS.*ENTERPRISE|TEAMS_ENTERPRISE/i }
+		{ key: 'e3', re: /ENTERPRISEPACK|O365_E3|SPE_E3|(^|_)E3($|_)/i },
+		{ key: 'e5', re: /SPE_E5|ENTERPRISEPREMIUM|O365_E5|M365[_-]?E5|(^|_)E5($|_)/i },
+		{ key: 'e5_no_teams', re: /NO[_-]?TEAMS|SPE_E5.*NO|SPE_E5_NO|E5.*NO[_-]?TEAMS/i },
+		{ key: 'teams_enterprise', re: /TEAMS.*ENTERPRISE|TEAMS_ENTERPRISE|TEAMS.*PREMIUM/i }
 	];
 
 	let wanted = null;
@@ -140,6 +165,17 @@ function formatSkuCounts(sku) {
 	return { enabled, consumed, remaining };
 }
 
+function buildSkuIdToPartNumberMap(subscribedSkus = []) {
+	const map = new Map();
+	for (const s of subscribedSkus || []) {
+		if (!s) continue;
+		const id = s.skuId;
+		if (!id) continue;
+		map.set(String(id), String(s.skuPartNumber || ''));
+	}
+	return map;
+}
+
 export async function executeM365Action({ actionQuery, conversationHistory, tenantDomain }) {
 	const payload = parseM365ActionPayload(actionQuery);
 	if (!payload) {
@@ -153,15 +189,7 @@ export async function executeM365Action({ actionQuery, conversationHistory, tena
 
 	const intent = String(payload.intent || '').toLowerCase();
 
-	// Gate on customer confirmation for change actions; allow read-only queries.
-	if (!isReadOnlyIntent(intent) && !hasCustomerConfirmation(conversationHistory)) {
-		return buildResult({
-			shortDescription: 'Awaiting customer confirmation',
-			summary: 'Customer has not confirmed yet. Ask the customer to confirm before executing Microsoft 365 changes.',
-			findings: [{ label: 'required', value: 'Customer confirmation (e.g., “yes, proceed”)' }],
-			confidence: 0.5
-		});
-	}
+	// NOTE: Confirmation gating intentionally disabled per workspace requirement.
 
 	const upn = payload.upn || payload.userPrincipalName;
 	const displayName = payload.displayName;
@@ -188,42 +216,86 @@ export async function executeM365Action({ actionQuery, conversationHistory, tena
 		}
 
 		if (intent === 'get_license_counts' || intent === 'license_counts') {
-			const skuLabel = payload.license || payload.sku || payload.skuPartNumber || payload.product;
-			const utterance = payload.utterance || skuLabel;
+			const skuLabelRaw = payload.license || payload.sku || payload.skuPartNumber || payload.product;
+			const utterance = payload.utterance || skuLabelRaw;
 			const skus = await callM365Tool('graph.listSubscribedSkus', {});
 			if (isToolError(skus)) return buildToolErrorResult('graph.listSubscribedSkus', skus);
 			const arr = Array.isArray(skus) ? skus : [];
-			let sku = skuLabel ? findSkuByLabel(skuLabel, arr) : null;
-			if (!sku && utterance) {
-				const resolved = await resolveTenantSkuByUtterance({ utterance, subscribedSkus: arr });
-				if (resolved?.skuPartNumber) {
-					sku = arr.find(s => String(s?.skuPartNumber || '') === resolved.skuPartNumber) || null;
-				}
+			if (!arr.length) {
+				return buildResult({
+					shortDescription: 'No subscribed SKUs returned',
+					summary: 'Microsoft Graph returned 0 subscribed SKUs. This is unusual if the tenant has licenses; check Graph permissions/admin consent and that you are targeting the correct tenant.',
+					findings: [
+						{ label: 'tool', value: 'graph.listSubscribedSkus' },
+						{ label: 'tenantDomain', value: String(process.env.AZURE_TENANT_DOMAIN || '') || '—' },
+						{ label: 'hint', value: 'Grant Microsoft Graph Application permissions (Directory.Read.All + Organization.Read.All recommended; SubscribedSku.Read.All if used) and admin-consent the app.' }
+					],
+					confidence: 0.25
+				});
 			}
-			if (!sku) {
+			const candidates = splitLicenseCandidates(skuLabelRaw);
+			const sample = arr.slice(0, 12).map(s => String(s?.skuPartNumber || '')).filter(Boolean);
+
+			if (!candidates.length) {
+				return buildResult({
+					shortDescription: 'No license specified',
+					summary: 'Provide a license label like “Microsoft 365 E5”.',
+					findings: [
+						{ label: 'tenantSkuCount', value: String(arr.length) },
+						{ label: 'tenantSkuSample', value: sample.length ? sample.join(', ') : '—' }
+					],
+					confidence: 0.35
+				});
+			}
+
+			const results = [];
+			const missing = [];
+			let fuzzyNote = null;
+
+			for (const label of candidates) {
+				let sku = findSkuByLabel(label, arr);
+				if (!sku && utterance) {
+					const resolved = await resolveTenantSkuByUtterance({ utterance: label, subscribedSkus: arr });
+					if (resolved?.skuPartNumber) {
+						sku = arr.find(s => String(s?.skuPartNumber || '') === resolved.skuPartNumber) || null;
+						fuzzyNote = `LLM resolved skuPartNumber=${resolved.skuPartNumber} confidence=${resolved.confidence}`;
+					}
+				}
+				if (!sku) {
+					missing.push(label);
+					continue;
+				}
+				const { enabled, consumed, remaining } = formatSkuCounts(sku);
+				results.push({ label, skuPartNumber: String(sku?.skuPartNumber || ''), enabled, consumed, remaining });
+			}
+
+			if (!results.length) {
+				const llmConfigured = !!(process.env.ENDPOINT_URL || process.env.AZURE_OPENAI_ENDPOINT || process.env.OPENAI_API_BASE) && !!(process.env.DEPLOYMENT_NAME || process.env.AZURE_OPENAI_DEPLOYMENT || process.env.AZURE_OPENAI_DEPLOYMENT_NAME) && !!(process.env.AZURE_OPENAI_API_KEY || process.env.OPENAI_API_KEY);
+				fuzzyNote = fuzzyNote || (llmConfigured ? 'LLM fuzzy mapping did not return a confident match' : 'LLM not configured; fuzzy mapping unavailable');
 				return buildResult({
 					shortDescription: 'License not found',
-					summary: skuLabel
-						? `Could not find a subscribed SKU matching “${skuLabel}”.`
-						: 'No license specified; provide a license label like “Microsoft 365 E5”.',
+					summary: `Could not find a subscribed SKU matching “${candidates.join(', ')}”.`,
 					findings: [
-						{ label: 'requested', value: String(skuLabel || '—') },
+						{ label: 'requested', value: String(skuLabelRaw || '—') },
+						{ label: 'tenantSkuCount', value: String(arr.length) },
+						{ label: 'tenantSkuSample', value: sample.length ? sample.join(', ') : '—' },
+						{ label: 'fuzzyMapping', value: fuzzyNote },
 						{ label: 'hint', value: 'Try: Microsoft 365 E5, Microsoft 365 E3, Microsoft 365 E5 (no Teams), Microsoft Teams Enterprise' },
 						{ label: 'hint2', value: 'If your tenant uses different SKU names, use list_subscribed_skus or ensure LLM is configured for fuzzy mapping.' }
 					],
 					confidence: 0.4
 				});
 			}
-			const { enabled, consumed, remaining } = formatSkuCounts(sku);
-			const part = String(sku?.skuPartNumber || '');
+
+			const lines = results.map(r => `${r.skuPartNumber}: ${r.enabled} total, ${r.consumed} assigned, ${r.remaining} available`);
+			const summary = `License availability: ${lines.join(' | ')}`;
 			return buildResult({
 				shortDescription: 'License counts',
-				summary: `Microsoft 365 licenses for ${part}: ${enabled} total, ${consumed} assigned, ${remaining} available.`,
+				summary,
 				findings: [
-					{ label: 'skuPartNumber', value: part || '—' },
-					{ label: 'totalEnabled', value: String(enabled) },
-					{ label: 'assignedConsumed', value: String(consumed) },
-					{ label: 'availableRemaining', value: String(remaining) }
+					...results.map(r => ({ label: r.skuPartNumber || r.label, value: `${r.enabled} total, ${r.consumed} assigned, ${r.remaining} available` })),
+					...(missing.length ? [{ label: 'notFound', value: missing.join(', ') }] : []),
+					...(fuzzyNote ? [{ label: 'fuzzyMapping', value: fuzzyNote }] : [])
 				],
 				confidence: normalizeConfidence(true)
 			});
@@ -244,6 +316,91 @@ export async function executeM365Action({ actionQuery, conversationHistory, tena
 						value: `${enabled} total, ${consumed} assigned, ${remaining} available`
 					};
 				}),
+				confidence: normalizeConfidence(true)
+			});
+		}
+
+		if (intent === 'check_user_license_assignments' || intent === 'check_license_assignment' || intent === 'verify_license_assignment' || intent === 'get_user_licenses') {
+			let resolvedUpn = upn;
+			if (!resolvedUpn) {
+				const name = String(displayName || '').trim();
+				if (!name) {
+					return buildResult({
+						shortDescription: 'Missing required fields',
+						summary: 'Need a user identifier to check license assignment (upn or displayName).',
+						findings: [
+							{ label: 'upn', value: 'missing' },
+							{ label: 'displayName', value: 'missing' },
+							{ label: 'hint', value: 'Use a UPN like alans@yourtenant.onmicrosoft.com for unambiguous results.' }
+						],
+						confidence: 0.4
+					});
+				}
+				const hits = await callM365Tool('graph.findUsersByDisplayNamePrefix', { displayNamePrefix: name, top: 5 });
+				if (isToolError(hits)) return buildToolErrorResult('graph.findUsersByDisplayNamePrefix', hits);
+				const arr = Array.isArray(hits) ? hits : [];
+				if (arr.length === 0) {
+					return buildResult({
+						shortDescription: 'User not found',
+						summary: `Could not find any user whose displayName starts with “${name}”.`,
+						findings: [{ label: 'displayNamePrefix', value: name }],
+						confidence: 0.35
+					});
+				}
+				if (arr.length > 1) {
+					return buildResult({
+						shortDescription: 'Multiple users match',
+						summary: `Multiple users match “${name}”. Please specify the exact UPN.`,
+						findings: arr.slice(0, 5).map(u => ({ label: u?.displayName || 'user', value: u?.userPrincipalName || u?.id || '—' })),
+						confidence: 0.45
+					});
+				}
+				resolvedUpn = arr[0]?.userPrincipalName;
+				if (!resolvedUpn) {
+					return buildResult({
+						shortDescription: 'User lookup incomplete',
+						summary: 'Found a matching user but could not determine userPrincipalName; please use UPN.',
+						findings: [{ label: 'displayNamePrefix', value: name }],
+						confidence: 0.35
+					});
+				}
+			}
+
+			const user = await callM365Tool('graph.getUserLicenses', { userIdOrUpn: resolvedUpn });
+			if (isToolError(user)) return buildToolErrorResult('graph.getUserLicenses', user);
+
+			const skus = await callM365Tool('graph.listSubscribedSkus', {});
+			if (isToolError(skus)) return buildToolErrorResult('graph.listSubscribedSkus', skus);
+			const skuArr = Array.isArray(skus) ? skus : [];
+			const skuIdToPart = buildSkuIdToPartNumberMap(skuArr);
+
+			const assigned = Array.isArray(user?.assignedLicenses) ? user.assignedLicenses : [];
+			const states = Array.isArray(user?.licenseAssignmentStates) ? user.licenseAssignmentStates : [];
+			const assignedSkuIds = assigned.map(a => String(a?.skuId || '')).filter(Boolean);
+			const assignedPartNumbers = assignedSkuIds
+				.map(id => ({ skuId: id, skuPartNumber: skuIdToPart.get(id) || '' }))
+				.sort((a, b) => String(a.skuPartNumber || a.skuId).localeCompare(String(b.skuPartNumber || b.skuId)));
+
+			const list = assignedPartNumbers.length
+				? assignedPartNumbers.map(x => x.skuPartNumber || x.skuId)
+				: [];
+
+			const hasErrors = states.some(s => String(s?.state || '').toLowerCase() === 'error');
+			const summary = list.length
+				? `License assignment for ${user?.userPrincipalName || resolvedUpn}: ${list.join(', ')}`
+				: `License assignment for ${user?.userPrincipalName || resolvedUpn}: none`;
+
+			return buildResult({
+				shortDescription: 'License assignment checked',
+				summary,
+				findings: [
+					{ label: 'upn', value: user?.userPrincipalName || resolvedUpn },
+					{ label: 'displayName', value: user?.displayName || '—' },
+					{ label: 'accountEnabled', value: String(user?.accountEnabled ?? '—') },
+					{ label: 'usageLocation', value: String(user?.usageLocation || '—') },
+					{ label: 'assignedLicenses', value: list.length ? list.join(', ') : 'none' },
+					...(hasErrors ? [{ label: 'licenseAssignmentStates', value: JSON.stringify(states.slice(0, 10)) }] : [])
+				],
 				confidence: normalizeConfidence(true)
 			});
 		}
@@ -286,24 +443,57 @@ export async function executeM365Action({ actionQuery, conversationHistory, tena
 					confidence: 0.4
 				});
 			}
-			const skuLabel = payload.license || payload.sku || payload.skuPartNumber;
+			const skuLabelRaw = payload.license || payload.sku || payload.skuPartNumber;
+			if (!skuLabelRaw) {
+				return buildResult({
+					shortDescription: 'Missing required fields',
+					summary: 'Need a license label (e.g., “Microsoft 365 E5”) to assign a license.',
+					findings: [
+						{ label: 'upn', value: upn },
+						{ label: 'license', value: 'missing' },
+						{ label: 'hint', value: 'Specify license like “Microsoft 365 E5” or run list_subscribed_skus.' }
+					],
+					confidence: 0.4
+				});
+			}
+			const candidates = splitLicenseCandidates(skuLabelRaw);
+			if (!candidates.length) {
+				return buildResult({
+					shortDescription: 'Missing required fields',
+					summary: 'Need a license label (e.g., “Microsoft 365 E5”) to assign a license.',
+					findings: [
+						{ label: 'upn', value: upn },
+						{ label: 'license', value: 'missing' }
+					],
+					confidence: 0.4
+				});
+			}
 			const skus = await callM365Tool('graph.listSubscribedSkus', {});
 			if (isToolError(skus)) return buildToolErrorResult('graph.listSubscribedSkus', skus);
 			const skuArr = Array.isArray(skus) ? skus : [];
-			let addSkuIds = await resolveSkuIdsByIntent(skuLabel, skuArr);
-			if (!addSkuIds.length && skuLabel) {
-				const resolved = await resolveTenantSkuByUtterance({ utterance: skuLabel, subscribedSkus: skuArr });
-				if (resolved?.skuPartNumber) {
-					const hit = skuArr.find(s => String(s?.skuPartNumber || '') === resolved.skuPartNumber);
-					if (hit?.skuId) addSkuIds = [hit.skuId];
+			let addSkuIds = [];
+			let chosenLabel = null;
+			for (const candidate of candidates) {
+				let ids = await resolveSkuIdsByIntent(candidate, skuArr);
+				if (!ids.length) {
+					const resolved = await resolveTenantSkuByUtterance({ utterance: candidate, subscribedSkus: skuArr });
+					if (resolved?.skuPartNumber) {
+						const hit = skuArr.find(s => String(s?.skuPartNumber || '') === resolved.skuPartNumber);
+						if (hit?.skuId) ids = [hit.skuId];
+					}
+				}
+				if (ids.length) {
+					addSkuIds = ids;
+					chosenLabel = candidate;
+					break;
 				}
 			}
 			if (!addSkuIds.length) {
 				return buildResult({
 					shortDescription: 'License not found',
-					summary: `Could not resolve license “${skuLabel}” to a subscribed SKU in this tenant.`,
+					summary: `Could not resolve any of these licenses to a subscribed SKU in this tenant: “${candidates.join(', ')}”.`,
 					findings: [
-						{ label: 'requested', value: String(skuLabel || '—') },
+						{ label: 'requested', value: candidates.join(', ') },
 						{ label: 'hint', value: 'Check tenant subscribed SKUs and update mapping.' }
 					],
 					confidence: 0.35
@@ -313,7 +503,7 @@ export async function executeM365Action({ actionQuery, conversationHistory, tena
 			if (isToolError(resp)) return buildToolErrorResult('graph.assignLicense', resp);
 			return buildResult({
 				shortDescription: 'License assigned',
-				summary: `Assigned license to ${upn}`,
+				summary: `Assigned license to ${upn}${chosenLabel ? ` (selected: ${chosenLabel})` : ''}`,
 				findings: [
 					{ label: 'upn', value: upn },
 					{ label: 'addSkuIds', value: addSkuIds.join(',') },

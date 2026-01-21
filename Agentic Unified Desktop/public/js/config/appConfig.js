@@ -14,7 +14,8 @@ export const WIDGETS_ON_AGENT_MESSAGE = [
   'NEXT_BEST_ACTION',
   'LIVE_PROMPTS',
   'AI_SUMMARY',
-  'RESOLUTION_PREDICTOR'
+  'RESOLUTION_PREDICTOR',
+  'AGENT_NETWORK_ACTIONS'
 ];
 
 // Grader configuration (tone / empathy / clarity heuristic)

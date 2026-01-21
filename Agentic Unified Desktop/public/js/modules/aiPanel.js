@@ -480,15 +480,54 @@ function getSelectedProvider(){
 	return v === 'openai' ? 'openai' : 'neurosan';
 }
 
+function showAgentActionsError(message){
+	if (!agentNetworkWidget || !agentNetworkActionsEl) return;
+	// remove loading
+	agentNetworkWidget.querySelectorAll('.loading-block').forEach(el=>el.remove());
+	agentNetworkActionsEl.classList.remove('hidden');
+	agentNetworkActionsEl.innerHTML = `<span class="error-badge">${message}</span>`;
+}
+
 async function refreshAgentActions(){
 	if (refreshActionsBtn) refreshActionsBtn.disabled = true;
 	try {
 		// Plan actions using the selected provider (Neuro‑San or OpenAI)
 		const providerMap = { AGENT_NETWORK_ACTIONS: getSelectedProvider() };
-		const resp = await fetch('/api/v1/get-insights', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ customerId:(window.getActiveCustomerId?.() || window.activeCustomerId || 'GB00000000'), conversationHistory: window.conversationHistory||[], requestedWidgets:['AGENT_NETWORK_ACTIONS'], providerMap }) });
-		const json = await resp.json();
-		if (json.AGENT_NETWORK_ACTIONS) updateAgentNetworkActions(json.AGENT_NETWORK_ACTIONS);
-	} catch(e){ console.warn('refresh actions failed', e); }
+		const body = {
+			customerId:(window.getActiveCustomerId?.() || window.activeCustomerId || 'GB00000000'),
+			conversationHistory: window.conversationHistory||[],
+			requestedWidgets:['AGENT_NETWORK_ACTIONS'],
+			providerMap,
+			extraVarsMap: { AGENT_NETWORK_ACTIONS: { REPLAN_NONCE: Date.now() } }
+		};
+		console.debug('[AI Panel] refreshAgentActions request', { requestedWidgets: body.requestedWidgets, providerMap, historyCount: body.conversationHistory.length });
+		const resp = await fetch('/api/v1/get-insights', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+		let json = null;
+		try { json = await resp.json(); } catch(_) { json = null; }
+		if (!resp.ok) {
+			const msg = (json && (json.error || json.message)) ? String(json.error || json.message) : `HTTP ${resp.status}`;
+			showAgentActionsError(`Refresh failed: ${msg}`);
+			return;
+		}
+		if (!json) {
+			showAgentActionsError('Refresh failed: invalid JSON response');
+			return;
+		}
+		if (json.error) {
+			showAgentActionsError(`Refresh failed: ${json.error}`);
+			return;
+		}
+		const payload = json.AGENT_NETWORK_ACTIONS;
+		if (payload?.error) {
+			showAgentActionsError(`Actions error: ${payload.error}`);
+			return;
+		}
+		if (payload) updateAgentNetworkActions(payload);
+		else showAgentActionsError('Refresh failed: AGENT_NETWORK_ACTIONS missing in response');
+	} catch(e){
+		console.warn('refresh actions failed', e);
+		showAgentActionsError('Refresh failed: network/connection error');
+	}
 	finally { if (refreshActionsBtn) refreshActionsBtn.disabled = false; }
 }
 
@@ -791,6 +830,8 @@ function init() {
 			clearTimeout(refreshDebounce);
 			refreshDebounce = setTimeout(() => { refreshAgentActions(); }, 250);
 		});
+		// Initial plan on load
+		setTimeout(() => { refreshAgentActions(); }, 0);
 		// Provider selector persistence
 		if (agentProviderSelect){
 			const saved = localStorage.getItem('agentProvider');

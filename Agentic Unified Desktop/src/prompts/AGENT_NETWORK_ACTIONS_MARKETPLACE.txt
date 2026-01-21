@@ -7,13 +7,31 @@ Conversation:
 CustomerId: {{customerId}}
 CustomerData: {{customerData}}
 
-Output JSON array (no prose) where each item has:
+Previously Executed (avoid duplicates):
+{{PREVIOUS_ACTIONS}}
+
+ReplanNonce: {{REPLAN_NONCE}}
+
+Output JSON object (no prose) with the shape:
+{"actions":[ ... ]}
+
+Each item in actions must have:
 - id: stable identifier (UPPER_SNAKE or kebab-case)
 - title: short actionable title
 - rationale: brief why/what
 - query: natural language query to run against internal systems.
 	If the action is a Microsoft 365 admin change, include a machine-readable payload at the end:
-	`M365_ACTION: {"intent":"assign_license"|"create_user"|"disable_user"|"update_user"|"discover_tenant"|"get_license_counts", ...}`
+	`M365_ACTION: {"intent":"assign_license"|"create_user"|"disable_user"|"update_user"|"check_user_license_assignments"|"list_subscribed_skus"|"get_license_counts", ...}`
+
+Microsoft 365 / licensing coherence rules:
+- Always include the exact UPN/email in any M365_ACTION when the conversation contains it.
+- If multiple SKUs are plausible, DO NOT combine them into one label. Create separate actions per SKU.
+- Keep one SKU per action.
+- Prefer the read-only check flow first:
+	1) check_user_license_assignments (upn)
+	2) get_license_counts (license)
+	3) assign_license (upn, license) only if counts show availability or the customer explicitly requests assignment
+- Avoid using discover_tenant for licensing flows.
 
 Examples of good Marketplace actions:
 - Check licence status and seat counts
@@ -31,4 +49,7 @@ Examples of Microsoft 365 admin actions (use M365_ACTION payload):
 - Answer: how many licenses are available/assigned for Microsoft 365 E5/E3
 	(include fields: license)
 
-Return ONLY valid minified JSON array.
+Important:
+- license field must be a single label string (e.g., "Microsoft 365 E5 (no Teams)"). Never output a comma-separated list.
+
+Return ONLY valid minified JSON object.
