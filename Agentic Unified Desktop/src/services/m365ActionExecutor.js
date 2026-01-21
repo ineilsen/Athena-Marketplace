@@ -47,6 +47,23 @@ function buildResult({ shortDescription, summary, findings = [], confidence }) {
 	};
 }
 
+function isToolError(obj) {
+	return obj && typeof obj === 'object' && String(obj.error || '').toUpperCase() === 'TOOL_ERROR';
+}
+
+function buildToolErrorResult(toolName, toolResp) {
+	const msg = String(toolResp?.message || 'Unknown MCP/Graph error');
+	return buildResult({
+		shortDescription: 'Microsoft 365 / Graph call failed',
+		summary: msg,
+		findings: [
+			{ label: 'tool', value: toolName },
+			{ label: 'hint', value: 'Check AZURE_TENANT_DOMAIN, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET in Agentic Unified Desktop/.env and ensure Graph app permissions + admin consent.' }
+		],
+		confidence: 0.2
+	});
+}
+
 async function resolveSkuIdsByIntent(licenseLabel, subscribedSkus = []) {
 	const label = String(licenseLabel || '').trim().toLowerCase();
 	if (!label) return [];
@@ -172,6 +189,7 @@ export async function executeM365Action({ actionQuery, conversationHistory, tena
 		if (intent === 'get_license_counts' || intent === 'license_counts') {
 			const skuLabel = payload.license || payload.sku || payload.skuPartNumber || payload.product;
 			const skus = await callM365Tool('graph.listSubscribedSkus', {});
+			if (isToolError(skus)) return buildToolErrorResult('graph.listSubscribedSkus', skus);
 			const arr = Array.isArray(skus) ? skus : [];
 			const sku = skuLabel ? findSkuByLabel(skuLabel, arr) : null;
 			if (!sku) {
@@ -204,6 +222,7 @@ export async function executeM365Action({ actionQuery, conversationHistory, tena
 
 		if (intent === 'list_subscribed_skus') {
 			const skus = await callM365Tool('graph.listSubscribedSkus', {});
+			if (isToolError(skus)) return buildToolErrorResult('graph.listSubscribedSkus', skus);
 			const arr = Array.isArray(skus) ? skus : [];
 			// Keep the summary compact; provide details in findings.
 			return buildResult({
@@ -260,6 +279,7 @@ export async function executeM365Action({ actionQuery, conversationHistory, tena
 			}
 			const skuLabel = payload.license || payload.sku || payload.skuPartNumber;
 			const skus = await callM365Tool('graph.listSubscribedSkus', {});
+			if (isToolError(skus)) return buildToolErrorResult('graph.listSubscribedSkus', skus);
 			const addSkuIds = await resolveSkuIdsByIntent(skuLabel, Array.isArray(skus) ? skus : []);
 			if (!addSkuIds.length) {
 				return buildResult({
@@ -273,6 +293,7 @@ export async function executeM365Action({ actionQuery, conversationHistory, tena
 				});
 			}
 			const resp = await callM365Tool('graph.assignLicense', { userIdOrUpn: upn, addSkuIds, removeSkuIds: [] });
+			if (isToolError(resp)) return buildToolErrorResult('graph.assignLicense', resp);
 			return buildResult({
 				shortDescription: 'License assigned',
 				summary: `Assigned license to ${upn}`,

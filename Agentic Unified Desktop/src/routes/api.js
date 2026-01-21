@@ -54,12 +54,28 @@ router.post('/v1/get-insights', async (req, res) => {
 		if (requestedWidgets.includes('AGENT_NETWORK_EXECUTE')) {
 			const execVars = extraVarsMap?.AGENT_NETWORK_EXECUTE;
 			const actionQuery = execVars?.ACTION_QUERY || '';
-			if (typeof actionQuery === 'string' && actionQuery.includes('M365_ACTION:')) {
+			const actionText = String(actionQuery || '');
+			const lower = actionText.toLowerCase();
+			const looksLikeLicenseCount = /licen[cs]e/.test(lower) && /(how many|number of|count|seat)/.test(lower) && /\be5\b|\be3\b|m365|microsoft\s*365|office\s*365/.test(lower);
+
+			let effectiveActionQuery = actionText;
+			if (!effectiveActionQuery.includes('M365_ACTION:') && looksLikeLicenseCount) {
+				// Planner sometimes omits the machine payload; synthesize it for read-only count requests.
+				let license = null;
+				if (/teams\s+enterprise/i.test(actionText)) license = 'Microsoft Teams Enterprise';
+				else if (/\be3\b/i.test(actionText)) license = 'Microsoft 365 E3';
+				else if (/\be5\b/i.test(actionText) && /no\s*teams|without\s*teams/i.test(actionText)) license = 'Microsoft 365 E5 (no Teams)';
+				else if (/\be5\b/i.test(actionText)) license = 'Microsoft 365 E5';
+				effectiveActionQuery = `M365_ACTION: ${JSON.stringify({ intent: 'get_license_counts', license })}`;
+			}
+
+			if (typeof effectiveActionQuery === 'string' && effectiveActionQuery.includes('M365_ACTION:')) {
 				// Record as executed for UI badges.
 				if (execVars?.ACTION_QUERY) recordExecutedAction(customerId, execVars.ACTION_ID, execVars.ACTION_QUERY);
 
 				const tenantDomain = process.env.AZURE_TENANT_DOMAIN || process.env.M365_TENANT_DOMAIN || '';
-				const result = await executeM365Action({ actionQuery, conversationHistory, tenantDomain });
+				const result = await executeM365Action({ actionQuery: effectiveActionQuery, conversationHistory, tenantDomain });
+				logger.info('M365 MCP execute result', { customerId, actionId: execVars?.ACTION_ID, shortDescription: result?.shortDescription, summary: String(result?.summary || '').slice(0, 180) });
 				// Provide a minimal LIVE_RESPONSE draft so UI can insert text quickly.
 				const draft = result?.summary ? `${result.summary}` : 'Microsoft 365 action processed.';
 				return res.json({
