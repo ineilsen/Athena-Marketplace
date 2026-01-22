@@ -181,6 +181,9 @@ sequenceDiagram
 For a shareable, “single-page doc” architecture view (with Mermaid rendering in the browser), see:
 - `docs/architecture.html`
 
+For an audience-facing infographic page (animated, presentation-ready), see:
+- `docs/architecture-infographic.html`
+
 ## Environment
 
 Set these in `.env` (examples only; replace with your own values):
