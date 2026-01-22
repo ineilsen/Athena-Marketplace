@@ -25,6 +25,7 @@ Each item in actions must have:
 
 Microsoft 365 / licensing coherence rules:
 - Always include the exact UPN/email in any M365_ACTION when the conversation contains it.
+- For disable_user and delete_user, NEVER proceed based on display name alone. If UPN/email is not present, include an action that asks the customer for the exact UPN/email.
 - If multiple SKUs are plausible, DO NOT combine them into one label. Create separate actions per SKU.
 - Keep one SKU per action.
 - Prefer the read-only check flow first:
@@ -46,6 +47,10 @@ Examples of Microsoft 365 admin actions (use M365_ACTION payload):
 	(include fields: upn, license)
 - Create a new user and assign license
 	(include fields: upn, displayName, usageLocation, license)
+- Disable a user
+	(include fields: upn)
+- Delete a user
+	(include fields: upn)
 - Answer: how many licenses are available/assigned for Microsoft 365 E5/E3
 	(include fields: license)
 

@@ -74,6 +74,16 @@ router.post('/v1/get-insights', async (req, res) => {
 			})();
 			const looksLikeLicenseAssignmentCheck = /licen[cs]e/.test(lower) && /(assignment|assigned|verify|check|status)/.test(lower) && (!!upn || !!nameAfterFor);
 			const looksLikeLicenseAssign = /licen[cs]e/.test(lower) && /(assign|add\s+license|grant)/.test(lower) && !!upn;
+			const looksLikeCreateUser = /(create|add)\s+(a\s+)?new\s+user|\bcreate\s+user\b|\badd\s+user\b/i.test(actionText) && !!upn;
+			const looksLikeDisableUser = /(disable|block|suspend)\s+user/i.test(actionText) && !!upn;
+			const looksLikeDeleteUser = /(delete|remove)\s+user/i.test(actionText) && !!upn;
+
+			const displayNameFromParens = (() => {
+				// e.g. "Anushka Sen (anushkas@tenant.onmicrosoft.com)"
+				// Also tolerate missing trailing ")" in user utterances.
+				const m = actionText.match(/\b([A-Za-z][A-Za-z.'-]+(?:\s+[A-Za-z][A-Za-z.'-]+){0,4})\s*\(\s*[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}(?:\s*\))?/i);
+				return m ? m[1].trim() : null;
+			})();
 
 			let effectiveActionQuery = actionText;
 			if (!effectiveActionQuery.includes('M365_ACTION:') && looksLikeLicenseCount) {
@@ -99,6 +109,22 @@ router.post('/v1/get-insights', async (req, res) => {
 				// If we still don't have a license label, keep it null; executor will report missing.
 				effectiveActionQuery = `M365_ACTION: ${JSON.stringify({ intent: 'assign_license', upn, userPrincipalName: upn, license, utterance: actionText })}`;
 			}
+			if (!effectiveActionQuery.includes('M365_ACTION:') && looksLikeCreateUser) {
+				// Synthesize payload for create user; default usageLocation to GB for demo.
+				const dn = displayNameFromParens || nameAfterFor || null;
+				let license = null;
+				if (/teams\s+enterprise/i.test(actionText)) license = 'Microsoft Teams Enterprise';
+				else if (/\be3\b/i.test(actionText)) license = 'Microsoft 365 E3';
+				else if (/\be5\b/i.test(actionText) && /no\s*teams|without\s*teams/i.test(actionText)) license = 'Microsoft 365 E5 (no Teams)';
+				else if (/\be5\b/i.test(actionText)) license = 'Microsoft 365 E5';
+				effectiveActionQuery = `M365_ACTION: ${JSON.stringify({ intent: 'create_user', upn, userPrincipalName: upn, displayName: dn, usageLocation: 'GB', license, utterance: actionText })}`;
+			}
+			if (!effectiveActionQuery.includes('M365_ACTION:') && looksLikeDisableUser) {
+				effectiveActionQuery = `M365_ACTION: ${JSON.stringify({ intent: 'disable_user', upn, userPrincipalName: upn, utterance: actionText })}`;
+			}
+			if (!effectiveActionQuery.includes('M365_ACTION:') && looksLikeDeleteUser) {
+				effectiveActionQuery = `M365_ACTION: ${JSON.stringify({ intent: 'delete_user', upn, userPrincipalName: upn, utterance: actionText })}`;
+			}
 
 			if (typeof effectiveActionQuery === 'string' && effectiveActionQuery.includes('M365_ACTION:')) {
 				// Ensure fuzzy mapping has the original customer utterance.
@@ -116,6 +142,9 @@ router.post('/v1/get-insights', async (req, res) => {
 							const upn2 = payloadUpn || upn;
 							const looksLikeAssignCheck2 = /licen[cs]e/.test(actionLower) && /(assignment|assigned|verify|check|status)/.test(actionLower) && (!!upn2 || !!nameAfterFor);
 							const looksLikeAssign2 = /licen[cs]e/.test(actionLower) && /(assign|add\s+license|grant)/.test(actionLower) && !!upn2;
+							const looksLikeCreate2 = /(create|add)\s+(a\s+)?new\s+user|\bcreate\s+user\b|\badd\s+user\b/.test(actionLower) && !!upn2;
+							const looksLikeDisable2 = /(disable|block|suspend)\s+user/.test(actionLower) && !!upn2;
+							const looksLikeDelete2 = /(delete|remove)\s+user/.test(actionLower) && !!upn2;
 							if (payloadIntent === 'discover_tenant' && looksLikeAssignCheck2) {
 								payload.intent = 'check_user_license_assignments';
 								if (upn2) {
@@ -148,6 +177,26 @@ router.post('/v1/get-insights', async (req, res) => {
 									else if (/\be5\b/i.test(actionText) && /no\s*teams|without\s*teams/i.test(actionText)) payload.license = 'Microsoft 365 E5 (no Teams)';
 									else if (/\be5\b/i.test(actionText)) payload.license = 'Microsoft 365 E5';
 								}
+								effectiveActionQuery = `${marker} ${JSON.stringify(payload)}`;
+							}
+							if (payloadIntent === 'discover_tenant' && looksLikeCreate2) {
+								payload.intent = 'create_user';
+								payload.upn = upn2;
+								payload.userPrincipalName = upn2;
+								if (!payload.displayName && displayNameFromParens) payload.displayName = displayNameFromParens;
+								if (!payload.usageLocation) payload.usageLocation = 'GB';
+								effectiveActionQuery = `${marker} ${JSON.stringify(payload)}`;
+							}
+							if (payloadIntent === 'discover_tenant' && looksLikeDisable2) {
+								payload.intent = 'disable_user';
+								payload.upn = upn2;
+								payload.userPrincipalName = upn2;
+								effectiveActionQuery = `${marker} ${JSON.stringify(payload)}`;
+							}
+							if (payloadIntent === 'discover_tenant' && looksLikeDelete2) {
+								payload.intent = 'delete_user';
+								payload.upn = upn2;
+								payload.userPrincipalName = upn2;
 								effectiveActionQuery = `${marker} ${JSON.stringify(payload)}`;
 							}
 						}

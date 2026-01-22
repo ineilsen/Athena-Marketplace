@@ -15,6 +15,8 @@ Rules:
 Microsoft 365 / licensing coherence rules:
 - If the issue is about Microsoft 365 access, seats, or licensing, make actions executable and unambiguous.
 - Always prefer including a UPN/email in the query when available. If only a first name is given, include ONE action to resolve to a UPN (ask for it) rather than guessing.
+- For user lifecycle actions (create/disable/delete), the query MUST include the exact UPN/email when it appears anywhere in the conversation.
+- NEVER recommend deleting/disabling a user based on display name alone. If the UPN/email is not present, include ONE action to ask the customer for the exact UPN/email.
 - Never combine multiple SKUs in a single license label (e.g., do NOT output "Microsoft 365 E3, Microsoft 365 E5"). If multiple options are plausible, create separate actions per SKU.
 - Keep one SKU per action.
 - Keep actions ordered: (1) check user assignment, (2) check seat availability for the best-matching SKU, (3) assign the SKU (if needed), (4) optional follow-up/support action.

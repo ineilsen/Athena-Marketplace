@@ -97,6 +97,12 @@ async function graphPatch(path, body, accessToken) {
 	return resp.data;
 }
 
+async function graphDelete(path, accessToken) {
+	const url = `${graphBase()}${path}`;
+	const resp = await axios.delete(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+	return resp.data;
+}
+
 function normalizeUpn(userIdOrUpn) {
 	if (!userIdOrUpn || typeof userIdOrUpn !== 'string') throw new Error('userIdOrUpn is required');
 	return userIdOrUpn.trim();
@@ -194,6 +200,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 			{
 				name: 'graph.disableUser',
 				description: 'Disable a user (accountEnabled=false).',
+				inputSchema: {
+					type: 'object',
+					properties: { userIdOrUpn: { type: 'string' } },
+					required: ['userIdOrUpn']
+				}
+			},
+			{
+				name: 'graph.deleteUser',
+				description: 'Delete a user by UPN or id (Graph DELETE /users/{id}).',
 				inputSchema: {
 					type: 'object',
 					properties: { userIdOrUpn: { type: 'string' } },
@@ -325,6 +340,11 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 			case 'graph.disableUser': {
 				const userIdOrUpn = normalizeUpn(args?.userIdOrUpn);
 				await graphPatch(`/users/${encodeURIComponent(userIdOrUpn)}`, { accountEnabled: false }, token);
+				return { content: [{ type: 'text', text: JSON.stringify({ ok: true }) }] };
+			}
+			case 'graph.deleteUser': {
+				const userIdOrUpn = normalizeUpn(args?.userIdOrUpn);
+				await graphDelete(`/users/${encodeURIComponent(userIdOrUpn)}`, token);
 				return { content: [{ type: 'text', text: JSON.stringify({ ok: true }) }] };
 			}
 			case 'graph.assignLicense': {

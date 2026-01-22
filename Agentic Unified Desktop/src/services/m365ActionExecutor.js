@@ -1,6 +1,6 @@
 import logger from '../utils/logger.js';
 import { callM365Tool } from './m365McpClient.js';
-import { resolveTenantSkuByUtterance } from './m365EntityExtractor.js';
+import { resolveTenantSkuByUtterance, extractProvisioningEntitiesFromUtterance } from './m365EntityExtractor.js';
 
 const READ_ONLY_INTENTS = new Set([
 	'get_license_counts',
@@ -194,6 +194,66 @@ export async function executeM365Action({ actionQuery, conversationHistory, tena
 	const upn = payload.upn || payload.userPrincipalName;
 	const displayName = payload.displayName;
 	const usageLocation = payload.usageLocation || 'GB';
+
+	function looksLikeBadDisplayName(name) {
+		const s = String(name || '').trim();
+		if (!s) return true;
+		const lower = s.toLowerCase();
+		if (lower === 'new user' || lower === 'user') return true;
+		if (lower.startsWith('new user ')) return true;
+		// name should not look like an email
+		if (/@/.test(s)) return true;
+		return false;
+	}
+
+	function sanitizeDisplayName(name) {
+		let s = String(name || '').trim();
+		if (!s) return '';
+		s = s.replace(/^\s*(?:a\s+)?new\s+user\b\s*[-:]*\s*/i, '');
+		s = s.replace(/^\s*user\b\s*[-:]*\s*/i, '');
+		// Collapse whitespace
+		s = s.replace(/\s{2,}/g, ' ').trim();
+		return s;
+	}
+
+	async function resolveUpnFromName(name) {
+		const n = sanitizeDisplayName(name);
+		if (!n) return { upn: null, error: 'MISSING_NAME' };
+		const matches = await callM365Tool('graph.findUsersByDisplayNamePrefix', { prefix: n });
+		if (isToolError(matches)) return { upn: null, error: 'TOOL_ERROR', tool: 'graph.findUsersByDisplayNamePrefix', toolResp: matches };
+		const arr = Array.isArray(matches) ? matches : [];
+		if (arr.length === 0) return { upn: null, error: 'NO_MATCH' };
+		// Prefer exact displayName match when possible, else take the first (prefix search is ordered).
+		const exact = arr.find(u => String(u?.displayName || '').toLowerCase() === n.toLowerCase());
+		const chosen = exact || arr[0];
+		const candidateUpn = chosen?.userPrincipalName || chosen?.mail || chosen?.id || null;
+		if (!candidateUpn) return { upn: null, error: 'NO_UPN' };
+		// If multiple and not exact, ask for UPN to avoid accidental deletion.
+		if (!exact && arr.length > 1) {
+			return { upn: null, error: 'MULTIPLE_MATCHES', matches: arr.slice(0, 5).map(u => ({ displayName: u?.displayName, upn: u?.userPrincipalName })) };
+		}
+		return { upn: String(candidateUpn), chosen: { displayName: chosen?.displayName, upn: chosen?.userPrincipalName } };
+	}
+
+	async function resolveUpnFromUtteranceOrPayload({ currentUpn, currentDisplayName }) {
+		let effectiveUpn = currentUpn || null;
+		let effectiveDisplayName = currentDisplayName || null;
+		const utterance = String(payload.utterance || '').trim();
+		if (utterance) {
+			const extracted = await extractProvisioningEntitiesFromUtterance({ utterance });
+			if (extracted) {
+				if (!effectiveUpn && extracted.upn) effectiveUpn = extracted.upn;
+				if (!effectiveDisplayName && extracted.displayName) effectiveDisplayName = extracted.displayName;
+			}
+		}
+		effectiveDisplayName = sanitizeDisplayName(effectiveDisplayName);
+		if (!effectiveUpn && effectiveDisplayName) {
+			const resolved = await resolveUpnFromName(effectiveDisplayName);
+			if (resolved?.upn) effectiveUpn = resolved.upn;
+			else return { upn: null, displayName: effectiveDisplayName, resolutionError: resolved };
+		}
+		return { upn: effectiveUpn, displayName: effectiveDisplayName };
+	}
 
 	try {
 		if (tenantDomain) {
@@ -406,31 +466,195 @@ export async function executeM365Action({ actionQuery, conversationHistory, tena
 		}
 
 		if (intent === 'create_user') {
-			if (!upn || !displayName) {
+			let effectiveUpn = upn;
+			let effectiveDisplayName = displayName;
+			let effectiveUsageLocation = usageLocation;
+			let requestedLicense = payload.license || payload.sku || payload.skuPartNumber || null;
+
+			// LLM-based extraction: improve accuracy for names and optional fields.
+			// Trigger when displayName is missing or looks like an artifact (e.g., "new user Anushka Sen").
+			const utterance = String(payload.utterance || '').trim();
+			if (utterance && (!effectiveUpn || looksLikeBadDisplayName(effectiveDisplayName))) {
+				const extracted = await extractProvisioningEntitiesFromUtterance({ utterance });
+				if (extracted) {
+					if (!effectiveUpn && extracted.upn) effectiveUpn = extracted.upn;
+					if ((!effectiveDisplayName || looksLikeBadDisplayName(effectiveDisplayName)) && extracted.displayName) {
+						effectiveDisplayName = extracted.displayName;
+					}
+					if ((!effectiveUsageLocation || effectiveUsageLocation === 'GB') && extracted.usageLocation) {
+						effectiveUsageLocation = extracted.usageLocation;
+					}
+					if (!requestedLicense && extracted.license) requestedLicense = extracted.license;
+				}
+			}
+
+			effectiveDisplayName = sanitizeDisplayName(effectiveDisplayName);
+
+			if (!effectiveUpn || !effectiveDisplayName) {
+				const missing = [];
+				if (!effectiveUpn) missing.push('UPN (email)');
+				if (!effectiveDisplayName) missing.push('display name (full name)');
 				return buildResult({
 					shortDescription: 'Missing required fields',
-					summary: 'Need upn and displayName to create a user.',
+					summary: `Need ${missing.join(' and ')} to create a user. Ask the customer to provide: "Full Name (upn@domain)".`,
 					findings: [
-						{ label: 'upn', value: upn ? 'provided' : 'missing' },
-						{ label: 'displayName', value: displayName ? 'provided' : 'missing' }
+						{ label: 'upn', value: effectiveUpn ? 'provided' : 'missing' },
+						{ label: 'displayName', value: effectiveDisplayName ? 'provided' : 'missing' },
+						{ label: 'example', value: 'Add user: Anushka Sen (anushkas@CRMbc395940.OnMicrosoft.com)' }
 					],
 					confidence: 0.4
 				});
 			}
 			const created = await callM365Tool('graph.createUser', {
-				userPrincipalName: upn,
-				displayName,
-				usageLocation
+				userPrincipalName: effectiveUpn,
+				displayName: effectiveDisplayName,
+				usageLocation: effectiveUsageLocation || 'GB'
 			});
+			if (isToolError(created)) return buildToolErrorResult('graph.createUser', created);
+
+			// Optional: assign a license immediately after create, if provided.
+			let assigned = null;
+			if (requestedLicense) {
+				const skus = await callM365Tool('graph.listSubscribedSkus', {});
+				if (isToolError(skus)) return buildToolErrorResult('graph.listSubscribedSkus', skus);
+				const skuArr = Array.isArray(skus) ? skus : [];
+				let addSkuIds = [];
+				const candidates = splitLicenseCandidates(requestedLicense);
+				for (const candidate of candidates) {
+					let ids = await resolveSkuIdsByIntent(candidate, skuArr);
+					if (!ids.length) {
+						const resolved = await resolveTenantSkuByUtterance({ utterance: candidate, subscribedSkus: skuArr });
+						if (resolved?.skuPartNumber) {
+							const hit = skuArr.find(s => String(s?.skuPartNumber || '') === resolved.skuPartNumber);
+							if (hit?.skuId) ids = [hit.skuId];
+						}
+					}
+					if (ids.length) { addSkuIds = ids; break; }
+				}
+				if (addSkuIds.length) {
+					assigned = await callM365Tool('graph.assignLicense', { userIdOrUpn: effectiveUpn, addSkuIds, removeSkuIds: [] });
+					if (isToolError(assigned)) return buildToolErrorResult('graph.assignLicense', assigned);
+				}
+			}
 			return buildResult({
 				shortDescription: 'User created',
-				summary: `Created ${created?.userPrincipalName || upn}`,
+				summary: `Created ${created?.userPrincipalName || effectiveUpn}${requestedLicense ? ' and attempted license assignment' : ''}`,
 				findings: [
 					{ label: 'userId', value: created?.id || '—' },
-					{ label: 'upn', value: created?.userPrincipalName || upn },
-					{ label: 'displayName', value: created?.displayName || displayName }
+					{ label: 'upn', value: created?.userPrincipalName || effectiveUpn },
+					{ label: 'displayName', value: created?.displayName || effectiveDisplayName },
+					{ label: 'usageLocation', value: created?.usageLocation || effectiveUsageLocation || 'GB' },
+					...(requestedLicense ? [{ label: 'requestedLicense', value: String(requestedLicense) }] : []),
+					...(assigned ? [{ label: 'licenseAssignment', value: 'ok' }] : (requestedLicense ? [{ label: 'licenseAssignment', value: 'not assigned (no matching SKU)' }] : []))
 				],
 				confidence: normalizeConfidence(!!created?.id)
+			});
+		}
+
+		if (intent === 'disable_user') {
+			const resolved = await resolveUpnFromUtteranceOrPayload({ currentUpn: upn, currentDisplayName: displayName });
+			const effectiveUpn = resolved?.upn;
+			if (!effectiveUpn) {
+				const reason = resolved?.resolutionError?.error;
+				if (reason === 'MULTIPLE_MATCHES') {
+					return buildResult({
+						shortDescription: 'User resolution ambiguous',
+						summary: 'Multiple users match that display name. Please provide the exact UPN/email to disable the correct user.',
+						findings: [
+							{ label: 'displayName', value: resolved?.displayName || '—' },
+							{ label: 'matches', value: JSON.stringify(resolved?.resolutionError?.matches || []) }
+						],
+						confidence: 0.35
+					});
+				}
+				return buildResult({
+					shortDescription: 'Missing required fields',
+					summary: 'Need UPN/email to disable a user. Ask the customer for the exact UPN (or provide "Full Name (upn@domain)").',
+					findings: [
+						{ label: 'upn', value: 'missing' },
+						...(resolved?.displayName ? [{ label: 'displayName', value: resolved.displayName }] : []),
+						{ label: 'example', value: 'Disable user: Alan Smith (alans@CRMbc395940.OnMicrosoft.com)' }
+					],
+					confidence: 0.4
+				});
+			}
+			const resp = await callM365Tool('graph.disableUser', { userIdOrUpn: effectiveUpn });
+			if (isToolError(resp)) return buildToolErrorResult('graph.disableUser', resp);
+			return buildResult({
+				shortDescription: 'User disabled',
+				summary: `Disabled ${effectiveUpn}`,
+				findings: [{ label: 'upn', value: effectiveUpn }],
+				confidence: 0.85
+			});
+		}
+
+		if (intent === 'delete_user') {
+			const resolved = await resolveUpnFromUtteranceOrPayload({ currentUpn: upn, currentDisplayName: displayName });
+			const effectiveUpn = resolved?.upn;
+			if (!effectiveUpn) {
+				const reason = resolved?.resolutionError?.error;
+				if (reason === 'MULTIPLE_MATCHES') {
+					return buildResult({
+						shortDescription: 'User resolution ambiguous',
+						summary: 'Multiple users match that display name. Please provide the exact UPN/email to delete the correct user.',
+						findings: [
+							{ label: 'displayName', value: resolved?.displayName || '—' },
+							{ label: 'matches', value: JSON.stringify(resolved?.resolutionError?.matches || []) }
+						],
+						confidence: 0.3
+					});
+				}
+				return buildResult({
+					shortDescription: 'Missing required fields',
+					summary: 'Need UPN/email to delete a user. Ask the customer for the exact UPN (or provide "Full Name (upn@domain)").',
+					findings: [
+						{ label: 'upn', value: 'missing' },
+						...(resolved?.displayName ? [{ label: 'displayName', value: resolved.displayName }] : []),
+						{ label: 'example', value: 'Delete user: Alan Smith (alans@CRMbc395940.OnMicrosoft.com)' }
+					],
+					confidence: 0.4
+				});
+			}
+			const resp = await callM365Tool('graph.deleteUser', { userIdOrUpn: effectiveUpn });
+			if (isToolError(resp)) return buildToolErrorResult('graph.deleteUser', resp);
+			return buildResult({
+				shortDescription: 'User deleted',
+				summary: `Deleted ${effectiveUpn}`,
+				findings: [{ label: 'upn', value: effectiveUpn }],
+				confidence: 0.85
+			});
+		}
+
+		if (intent === 'update_user') {
+			const resolved = await resolveUpnFromUtteranceOrPayload({ currentUpn: upn, currentDisplayName: displayName });
+			const effectiveUpn = resolved?.upn;
+			if (!effectiveUpn) {
+				return buildResult({
+					shortDescription: 'Missing required fields',
+					summary: 'Need UPN/email to update a user. Ask the customer for the exact UPN (or provide "Full Name (upn@domain)").',
+					findings: [
+						{ label: 'upn', value: 'missing' },
+						...(resolved?.displayName ? [{ label: 'displayName', value: resolved.displayName }] : [])
+					],
+					confidence: 0.4
+				});
+			}
+			const patch = payload.patch;
+			if (!patch || typeof patch !== 'object') {
+				return buildResult({
+					shortDescription: 'Missing required fields',
+					summary: 'Need patch object to update user (e.g., {"usageLocation":"GB"}).',
+					findings: [{ label: 'patch', value: 'missing' }],
+					confidence: 0.4
+				});
+			}
+			const resp = await callM365Tool('graph.updateUser', { userIdOrUpn: effectiveUpn, patch });
+			if (isToolError(resp)) return buildToolErrorResult('graph.updateUser', resp);
+			return buildResult({
+				shortDescription: 'User updated',
+				summary: `Updated ${effectiveUpn}`,
+				findings: [{ label: 'upn', value: effectiveUpn }, { label: 'patch', value: JSON.stringify(patch) }],
+				confidence: 0.85
 			});
 		}
 

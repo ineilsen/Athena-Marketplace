@@ -212,6 +212,39 @@ Return ONLY minified JSON with fields: title, intentKey (UPPER_SNAKE), suggested
 	}
 }
 
+function extractUpnAndDisplayNameFromText(text = '') {
+	const upnMatch = String(text || '').match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+	const upn = upnMatch ? upnMatch[0] : null;
+	// e.g. "Anushka Sen (anushkas@tenant.onmicrosoft.com)" or missing trailing ")"
+	const nameInParens = String(text || '').match(/\b([A-Za-z][A-Za-z.'-]+(?:\s+[A-Za-z][A-Za-z.'-]+){0,4})\s*\(\s*[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}(?:\s*\))?/i);
+	const displayName = nameInParens ? nameInParens[1].trim() : null;
+	return { upn, displayName };
+}
+
+function maybeInjectUserLifecycleActions({ actions = [], conversationHistory = [], extraVars = {} }) {
+	const convoText = (conversationHistory || []).map(m => String(m?.content || '')).join('\n');
+	const lower = convoText.toLowerCase();
+	const { upn, displayName } = extractUpnAndDisplayNameFromText(convoText);
+	const prev = String(extraVars?.PREVIOUS_ACTIONS || '');
+
+	const askedCreate = /(create|add)\s+(a\s+)?new\s+user|\bcreate\s+user\b|\badd\s+user\b|\badd\s+a\s+new\s+user\b/.test(lower);
+	if (askedCreate && upn) {
+		const alreadySuggested = (actions || []).some(a => String(a?.id || '').toLowerCase().includes('create') || String(a?.title || '').toLowerCase().includes('create user'));
+		const alreadyExecuted = prev && prev.toLowerCase().includes('create_user') && prev.toLowerCase().includes(upn.toLowerCase());
+		if (!alreadySuggested && !alreadyExecuted) {
+			const dn = displayName || null;
+			const human = dn ? `${dn} (${upn})` : `${upn}`;
+			const query = `Create user ${human}. M365_ACTION: ${JSON.stringify({ intent: 'create_user', upn, userPrincipalName: upn, displayName: dn, usageLocation: 'GB' })}`;
+			actions = [
+				{ id: 'm365-create-user', title: 'Create user', rationale: dn ? 'Customer requested a new user to be added.' : 'Need display name to create the user; ask customer for full name.', query },
+				...(actions || [])
+			].slice(0, 6);
+		}
+	}
+
+	return actions;
+}
+
 // All widget outputs are now dynamically produced by the LLM. No mock fallback generation.
 
 async function callNeuroSan({ widgetType, conversationHistory, extraVars, customerId }){
@@ -237,6 +270,9 @@ Coherence rules for Microsoft 365 licensing:
 - Include UPN/email in any M365-related action when present.
 - One SKU per action; never combine labels like "E3, E5".
 - Order: check user license assignment -> check license availability -> assign license (only if needed).
+User lifecycle safety rules:
+- For disable/delete user actions, include the exact UPN/email when present anywhere in the conversation.
+- Never recommend disable/delete based on display name alone; ask for the UPN/email if missing.
 Conversation so far:\n${convo}${prev}`;
 	} else if (widgetType === 'AGENT_NETWORK_EXECUTE') {
 		const customerData = { id: customerId, segment: 'VIP', tenureMonths: 38 };
@@ -449,6 +485,8 @@ export async function fetchInsights({ customerId, conversationHistory, requested
 					];
 					actions = base;
 				}
+				// Deterministic injection for obvious user lifecycle requests (e.g., create user) so badges appear reliably.
+				actions = maybeInjectUserLifecycleActions({ actions, conversationHistory, extraVars: extraVarsMap[widgetType] });
 				return [widgetType, { actions }];
 			}
 			// Normalize LIVE_PROMPTS array shape if model returned object wrapper
