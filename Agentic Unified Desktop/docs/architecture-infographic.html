@@ -1,936 +1,1259 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Athena – Architecture Infographic</title>
-  <meta name="description" content="Infographic architecture page for the Athena Agentic Unified Desktop: real-time orchestration + SSE + MCP + Microsoft Graph." />
+  <title>Athena · Agentic Unified Desktop | Cognizant Neuro® SAN</title>
+  <meta name="description" content="Athena Agentic Unified Desktop architecture powered by Cognizant Neuro SAN." />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Mermaid.js for architecture diagram -->
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'base',
+      themeVariables: {
+        primaryColor: '#dbeafe',
+        primaryTextColor: '#1e40af',
+        primaryBorderColor: '#3b82f6',
+        lineColor: '#64748b',
+        secondaryColor: '#dcfce7',
+        tertiaryColor: '#f0fdfa'
+      },
+      flowchart: {
+        curve: 'basis',
+        padding: 20,
+        nodeSpacing: 50,
+        rankSpacing: 60
+      }
+    });
+  </script>
+
 
   <style>
-    /*
-      Palette policy: reuse existing UI tokens from public/css/style.css
-      (no new brand colors introduced here)
-    */
-    :root {
-      --bg-main:#FFFFFF;
-      --bg-panel:#F8F9FA;
-      --border-soft:#E9ECEF;
-      --border-focus:#D0B0F8;
-      --text-primary:#212529;
-      --text-secondary:#6C757D;
-      --bt-purple:#5500A9;
-      --bt-pink:#E8005A;
-      --bt-purple-light:#F4ECFC;
-      --accent-positive:#20C997;
-      --accent-warning:#FFC107;
-      --accent-negative:#DC3545;
-      --shadow-md:0 4px 12px rgba(0,0,0,0.05);
-      --glass-bg: rgba(255,255,255,.62);
-      --glass-bg-strong: rgba(255,255,255,.74);
-      --glass-border: rgba(255,255,255,.6);
-      --glass-outline: rgba(85,0,169,.15);
-      --glass-shadow: 0 8px 24px rgba(0,0,0,.08);
-      --canvas-grad:
-        radial-gradient(1200px 800px at 10% -10%, #f7f2ff 0%, transparent 40%),
-        radial-gradient(1000px 900px at 110% 10%, #ffe7f0 0%, transparent 45%),
-        linear-gradient(180deg,#fbfbfd 0%, #ffffff 100%);
-
-      --radius: 18px;
-      --radius-sm: 14px;
-      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-
-      --max: 1200px;
-      --gutter: 20px;
-
-      --ring: 0 0 0 1px rgba(255,255,255,.75), 0 0 0 2px rgba(85,0,169,.10);
-      --ring-strong: 0 0 0 1px rgba(255,255,255,.75), 0 0 0 3px rgba(85,0,169,.18);
-    }
-
-    * { box-sizing: border-box; }
-
-    html, body {
-      height: 100%;
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
       margin: 0;
-      font-family: var(--sans);
-      color: var(--text-primary);
-      background: var(--canvas-grad);
-      overflow-x: hidden;
+      padding: 0;
     }
 
-    a { color: inherit; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-
-    .wrap {
-      width: min(var(--max), calc(100% - (var(--gutter) * 2)));
-      margin: 0 auto;
+    :root {
+      --cog-navy: #000048;
+      --cog-blue: #0033a0;
+      --cog-teal: #00b4d8;
+      --cog-light: #f5f7fa;
+      --cog-white: #ffffff;
+      --text-dark: #1a1a2e;
+      --text-body: #4a4a68;
+      --text-muted: #7a7a8c;
+      --border: #e0e0e8;
+      --accent-green: #00c389;
+      --accent-orange: #ff6b35;
+      --accent-purple: #7c3aed;
     }
 
-    header {
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--cog-white);
+      color: var(--text-body);
+      line-height: 1.6;
+    }
+
+    /* ===== HEADER ===== */
+    .header {
+      background: var(--cog-navy);
+      color: white;
+      padding: 16px 0;
       position: sticky;
       top: 0;
-      z-index: 40;
-      border-bottom: 1px solid rgba(233,236,239,.65);
-      background: var(--glass-bg);
-      backdrop-filter: saturate(140%) blur(10px);
-      -webkit-backdrop-filter: saturate(140%) blur(10px);
-      box-shadow: var(--glass-shadow);
+      z-index: 100;
     }
 
-    .topbar {
+    .header-inner {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 0 60px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 14px;
-      padding: 14px 0;
     }
 
-    .brand {
+    .logo-group {
       display: flex;
       align-items: center;
-      gap: 12px;
-      min-width: 240px;
-    }
-
-    .brand img {
-      height: 26px;
-      width: auto;
-      border-radius: 6px;
-      box-shadow: 0 1px 2px rgba(0,0,0,.08);
-    }
-
-    .brand .title {
-      display: flex;
-      flex-direction: column;
-      line-height: 1.1;
-    }
-
-    .brand .title strong {
-      font-size: 14px;
-      letter-spacing: .2px;
-      color: var(--bt-purple);
-    }
-
-    .brand .title span {
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: .2px;
-      color: var(--text-secondary);
-    }
-
-    .nav {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-    }
-
-    .chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      border-radius: 999px;
-      background: var(--glass-bg);
-      border: 1px solid rgba(255,255,255,.7);
-      outline: 1px solid rgba(85,0,169,.08);
-      box-shadow: 0 6px 18px rgba(0,0,0,.06);
-      backdrop-filter: saturate(140%) blur(10px);
-      -webkit-backdrop-filter: saturate(140%) blur(10px);
-      font-size: 12px;
-      font-weight: 800;
-      letter-spacing: .2px;
-      color: var(--bt-purple);
-    }
-
-    .chip small {
-      font-weight: 800;
-      color: var(--bt-pink);
-      letter-spacing: .35px;
-      text-transform: uppercase;
-    }
-
-    main { padding: 24px 0 70px; }
-
-    .hero {
-      display: grid;
-      grid-template-columns: 1fr;
       gap: 16px;
-      margin: 22px 0 18px;
     }
 
-    @media (min-width: 980px) {
-      .hero { grid-template-columns: 1.1fr .9fr; align-items: start; }
+    .logo-img {
+      height: 28px;
+      width: auto;
     }
 
-    .card {
-      border-radius: var(--radius);
-      background: var(--glass-bg-strong);
-      border: 1px solid rgba(255,255,255,.7);
-      outline: 1px solid rgba(85,0,169,.10);
-      box-shadow: var(--glass-shadow);
-      backdrop-filter: saturate(140%) blur(12px);
-      -webkit-backdrop-filter: saturate(140%) blur(12px);
+    .logo-divider {
+      width: 1px;
+      height: 24px;
+      background: rgba(255, 255, 255, 0.3);
     }
 
-    .hero-copy {
-      padding: 22px 22px 18px;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .hero-copy:before {
-      content: "";
-      position: absolute;
-      inset: -60px -80px auto auto;
-      width: 240px;
-      height: 240px;
-      background: radial-gradient(circle at 30% 30%, rgba(232,0,90,.20), transparent 62%);
-      filter: blur(2px);
-      transform: translateZ(0);
-      pointer-events: none;
-    }
-
-    .h1 {
-      margin: 0;
-      font-size: 28px;
-      line-height: 1.15;
-      letter-spacing: .2px;
-      color: var(--text-primary);
-    }
-
-    .h1 strong {
-      color: var(--bt-purple);
-    }
-
-    .lede {
-      margin: 10px 0 0;
+    .logo-text {
       font-size: 14px;
-      line-height: 1.5;
-      color: var(--text-secondary);
-      font-weight: 700;
-      max-width: 66ch;
+      font-weight: 600;
+      letter-spacing: 0.5px;
     }
 
-    .badges {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-top: 14px;
-    }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      border-radius: 12px;
-      background: linear-gradient(180deg, rgba(244,236,252,.90), rgba(255,255,255,.92));
-      border: 1px solid rgba(85,0,169,.12);
-      box-shadow: 0 10px 26px rgba(85,0,169,.06);
-      font-weight: 900;
-      font-size: 12px;
-      letter-spacing: .2px;
-    }
-
-    .badge b { color: var(--bt-pink); }
-
-    .hero-meta {
-      padding: 18px;
-    }
-
-    .meta-grid {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 10px;
-    }
-
-    @media (min-width: 600px) {
-      .meta-grid { grid-template-columns: 1fr 1fr; }
-    }
-
-    .meta {
-      background: rgba(255,255,255,.76);
-      border: 1px solid var(--border-soft);
-      border-radius: var(--radius-sm);
-      padding: 12px;
-      box-shadow: 0 6px 16px rgba(0,0,0,.05);
-    }
-
-    .meta .k {
+    .neuro-badge {
+      background: linear-gradient(90deg, var(--cog-teal), var(--accent-green));
+      padding: 6px 14px;
+      border-radius: 4px;
       font-size: 11px;
-      color: var(--text-secondary);
-      font-weight: 900;
-      letter-spacing: .35px;
-      text-transform: uppercase;
-      margin-bottom: 6px;
-    }
-
-    .meta .v {
-      font-family: var(--mono);
-      font-size: 12px;
-      font-weight: 800;
-      color: var(--bt-purple);
-      word-break: break-word;
-    }
-
-    .section {
-      margin-top: 18px;
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 14px;
-    }
-
-    @media (min-width: 980px) {
-      .section { grid-template-columns: 1.1fr .9fr; }
-      .full { grid-column: 1 / -1; }
-    }
-
-    .panel {
-      padding: 18px;
-    }
-
-    .panel h2 {
-      margin: 0 0 10px;
-      font-size: 13px;
-      letter-spacing: .35px;
-      text-transform: uppercase;
-      font-weight: 900;
-      color: var(--text-secondary);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-    }
-
-    .panel h2 .tag {
-      font-size: 11px;
-      font-weight: 900;
-      color: var(--bt-pink);
-      background: rgba(232,0,90,.10);
-      border: 1px solid rgba(232,0,90,.18);
-      padding: 4px 10px;
-      border-radius: 999px;
-    }
-
-    .panel p {
-      margin: 0 0 12px;
-      color: var(--text-secondary);
-      font-size: 13px;
       font-weight: 700;
-      line-height: 1.55;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
     }
 
-    .list {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 10px;
-      margin-top: 10px;
-    }
-
-    .item {
-      background: rgba(255,255,255,.76);
-      border: 1px solid var(--border-soft);
-      border-radius: var(--radius-sm);
-      padding: 12px;
-      box-shadow: 0 6px 16px rgba(0,0,0,.05);
-    }
-
-    .item .label {
-      font-size: 12px;
-      font-weight: 900;
-      color: var(--bt-purple);
-      margin: 0 0 6px;
-      letter-spacing: .2px;
-    }
-
-    .item .desc {
-      margin: 0;
-      font-size: 12px;
-      color: var(--text-secondary);
-      font-weight: 700;
-    }
-
-    .code {
-      font-family: var(--mono);
-      font-size: 12px;
-      color: var(--bt-purple);
-      background: rgba(244,236,252,.9);
-      border: 1px solid rgba(85,0,169,.14);
-      padding: 3px 8px;
-      border-radius: 10px;
-      white-space: nowrap;
-    }
-
-    /* Infographic canvas */
-    .infographic {
-      padding: 0;
+    /* ===== HERO ===== */
+    .hero {
+      background: linear-gradient(135deg, var(--cog-navy) 0%, #001040 100%);
+      color: white;
+      padding: 100px 60px 80px;
+      position: relative;
       overflow: hidden;
     }
 
-    .canvas {
-      position: relative;
-      padding: 16px;
-      min-height: 520px;
-    }
-
-    .canvas:before {
-      content: "";
+    .hero::before {
+      content: '';
       position: absolute;
-      inset: -140px;
-      background:
-        radial-gradient(520px 380px at 20% 20%, rgba(85,0,169,.14), transparent 62%),
-        radial-gradient(540px 420px at 78% 12%, rgba(232,0,90,.12), transparent 60%),
-        radial-gradient(520px 420px at 80% 85%, rgba(32,201,151,.10), transparent 60%);
-      filter: blur(10px);
-      transform: translateZ(0);
+      top: -50%;
+      right: -20%;
+      width: 80%;
+      height: 200%;
+      background: radial-gradient(circle, rgba(0, 180, 216, 0.08) 0%, transparent 60%);
       pointer-events: none;
     }
 
-    .svg {
-      width: 100%;
-      height: 520px;
+    .hero-inner {
+      max-width: 1400px;
+      margin: 0 auto;
       position: relative;
       z-index: 1;
     }
 
-    .node {
-      filter: drop-shadow(0 12px 24px rgba(85,0,169,.10));
+    .hero-eyebrow {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--cog-teal);
+      margin-bottom: 16px;
     }
 
-    .node rect {
-      fill: rgba(255,255,255,.84);
-      stroke: rgba(85,0,169,.22);
-      stroke-width: 1.5;
+    .hero h1 {
+      font-size: 52px;
+      font-weight: 700;
+      line-height: 1.1;
+      margin-bottom: 24px;
+      max-width: 900px;
     }
 
-    .node .title {
-      font: 900 13px/1.1 var(--sans);
-      fill: var(--bt-purple);
-      letter-spacing: .2px;
+    .hero-lead {
+      font-size: 18px;
+      line-height: 1.7;
+      max-width: 750px;
+      color: rgba(255, 255, 255, 0.85);
+      margin-bottom: 32px;
     }
 
-    .node .sub {
-      font: 800 11px/1.2 var(--sans);
-      fill: var(--text-secondary);
+    .hero-highlight {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(0, 180, 216, 0.15);
+      border: 1px solid rgba(0, 180, 216, 0.3);
+      padding: 12px 20px;
+      border-radius: 8px;
     }
 
-    .cluster rect {
-      fill: rgba(244,236,252,.55);
-      stroke: rgba(85,0,169,.16);
-      stroke-width: 1.25;
+    .hero-highlight-icon {
+      width: 32px;
+      height: 32px;
+      background: var(--cog-teal);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
     }
 
-    .cluster text {
-      font: 900 11px/1 var(--sans);
-      fill: rgba(85,0,169,.70);
-      letter-spacing: .32px;
+    .hero-highlight-text {
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .hero-highlight-text strong {
+      color: var(--cog-teal);
+    }
+
+    /* ===== SECTION STYLING ===== */
+    .section {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 80px 60px;
+    }
+
+    .section-header {
+      margin-bottom: 48px;
+    }
+
+    .section-eyebrow {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--cog-teal);
+      margin-bottom: 12px;
+    }
+
+    .section-title {
+      font-size: 36px;
+      font-weight: 700;
+      color: var(--text-dark);
+      margin-bottom: 16px;
+    }
+
+    .section-subtitle {
+      font-size: 16px;
+      color: var(--text-body);
+      max-width: 700px;
+    }
+
+    /* ===== THE CHALLENGE ===== */
+    .challenge-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 48px;
+      align-items: center;
+    }
+
+    .challenge-text h3 {
+      font-size: 24px;
+      color: var(--text-dark);
+      margin-bottom: 16px;
+    }
+
+    .challenge-text p {
+      margin-bottom: 16px;
+    }
+
+    .challenge-list {
+      list-style: none;
+      margin-top: 24px;
+    }
+
+    .challenge-list li {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .challenge-list li::before {
+      content: '✗';
+      color: var(--accent-orange);
+      font-weight: 700;
+      font-size: 16px;
+      margin-top: 2px;
+    }
+
+    .solution-list li::before {
+      content: '✓';
+      color: var(--accent-green);
+    }
+
+    /* ===== NEURO SAN HERO SECTION ===== */
+    .neuro-section {
+      background: linear-gradient(135deg, #0a0a20 0%, var(--cog-navy) 100%);
+      color: white;
+      padding: 80px 60px;
+    }
+
+    .neuro-inner {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    .neuro-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 60px;
+      align-items: center;
+    }
+
+    .neuro-content h2 {
+      font-size: 40px;
+      font-weight: 700;
+      margin-bottom: 24px;
+      line-height: 1.2;
+    }
+
+    .neuro-content h2 span {
+      color: var(--cog-teal);
+    }
+
+    .neuro-content p {
+      font-size: 16px;
+      line-height: 1.7;
+      color: rgba(255, 255, 255, 0.8);
+      margin-bottom: 16px;
+    }
+
+    .neuro-features {
+      display: grid;
+      gap: 16px;
+      margin-top: 32px;
+    }
+
+    .neuro-feature {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 16px 20px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+    }
+
+    .neuro-feature-icon {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, var(--cog-teal), var(--accent-green));
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+
+    .neuro-feature h4 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+
+    .neuro-feature p {
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.6);
+      margin: 0;
+    }
+
+    .neuro-diagram {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      padding: 32px;
+      text-align: center;
+    }
+
+    .neuro-diagram-title {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--cog-teal);
+      margin-bottom: 24px;
+    }
+
+    .neuro-hub {
+      width: 140px;
+      height: 140px;
+      background: linear-gradient(135deg, var(--cog-teal), var(--accent-purple));
+      border-radius: 50%;
+      margin: 0 auto 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      box-shadow: 0 0 60px rgba(0, 180, 216, 0.3);
+    }
+
+    .neuro-hub strong {
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .neuro-hub span {
+      font-size: 11px;
+      opacity: 0.8;
+    }
+
+    .neuro-satellites {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .satellite {
+      padding: 10px 16px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    /* ===== KEY BENEFITS GRID ===== */
+    .benefits-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 24px;
+    }
+
+    .benefit-card {
+      background: var(--cog-light);
+      border-radius: 8px;
+      padding: 32px 24px;
+      border-top: 4px solid var(--cog-teal);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .benefit-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 12px 24px rgba(0, 0, 0, 0.08);
+    }
+
+    .benefit-icon {
+      width: 48px;
+      height: 48px;
+      background: var(--cog-navy);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 20px;
+      color: white;
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    .benefit-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-dark);
+      margin-bottom: 12px;
+    }
+
+    .benefit-desc {
+      font-size: 14px;
+      color: var(--text-body);
+      line-height: 1.6;
+    }
+
+    /* ===== ARCHITECTURE DIAGRAM ===== */
+    .arch-section {
+      background: var(--cog-light);
+    }
+
+    .arch-container {
+      background: white;
+      border-radius: 12px;
+      padding: 40px;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+    }
+
+    .arch-diagram {
+      width: 100%;
+      height: auto;
+      min-height: 420px;
+    }
+
+    /* SVG Styles */
+    .zone-rect {
+      rx: 8;
+      stroke-width: 1;
+    }
+
+    .z-client {
+      fill: #fff7ed;
+      stroke: #fed7aa;
+    }
+
+    .z-core {
+      fill: #eff6ff;
+      stroke: #bfdbfe;
+    }
+
+    .z-neuro {
+      fill: #f0fdf4;
+      stroke: #bbf7d0;
+    }
+
+    .z-external {
+      fill: #f0fdfa;
+      stroke: #99f6e4;
+    }
+
+    .zone-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1px;
       text-transform: uppercase;
     }
 
-    .edge {
+    .zl-client {
+      fill: #ea580c;
+    }
+
+    .zl-core {
+      fill: #2563eb;
+    }
+
+    .zl-neuro {
+      fill: #16a34a;
+    }
+
+    .zl-external {
+      fill: #0d9488;
+    }
+
+    .node-box {
+      fill: white;
+      stroke: #e5e7eb;
+      stroke-width: 1;
+      rx: 6;
+      filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.05));
+    }
+
+    .node-neuro {
+      fill: #f0fdf4;
+      stroke: #22c55e;
+      stroke-width: 2;
+    }
+
+    .node-title {
+      font-size: 12px;
+      font-weight: 600;
+      fill: #1f2937;
+    }
+
+    .node-sub {
+      font-size: 10px;
+      fill: #6b7280;
+    }
+
+    .conn-line {
       fill: none;
-      stroke-width: 3.2;
+      stroke: #d1d5db;
+      stroke-width: 1.5;
       stroke-linecap: round;
     }
 
-    .edge.primary { stroke: rgba(85,0,169,.60); }
-    .edge.accent  { stroke: rgba(232,0,90,.55); }
-    .edge.stream  { stroke: rgba(32,201,151,.55); }
-
-    .edge.animated {
-      stroke-dasharray: 10 10;
-      animation: dash 2.6s linear infinite;
+    .conn-neuro {
+      stroke: #22c55e;
+      stroke-width: 2;
+      stroke-dasharray: 6 4;
     }
 
-    .edge.slow {
-      stroke-dasharray: 14 14;
-      animation-duration: 3.8s;
+    .arrow-head {
+      fill: #9ca3af;
     }
 
-    @keyframes dash {
-      from { stroke-dashoffset: 0; }
-      to { stroke-dashoffset: -48; }
+    .arrow-neuro {
+      fill: #22c55e;
     }
 
-    .pulse {
-      transform-origin: center;
-      animation: pulse 2.4s ease-in-out infinite;
-    }
-
-    .pulse.fast { animation-duration: 1.85s; }
-
-    @keyframes pulse {
-      0%, 100% { opacity: .55; transform: scale(1); }
-      50% { opacity: 1; transform: scale(1.06); }
-    }
-
-    .dot {
-      animation: float 5.2s ease-in-out infinite;
-      opacity: .65;
-    }
-
-    .dot:nth-child(2) { animation-duration: 6.1s; }
-    .dot:nth-child(3) { animation-duration: 7.0s; }
-    .dot:nth-child(4) { animation-duration: 6.4s; }
-
-    @keyframes float {
-      0%,100% { transform: translate(0, 0); }
-      50% { transform: translate(0, -10px); }
-    }
-
-    /* Scroll story */
-    .story {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 14px;
-    }
-
-    @media (min-width: 980px) {
-      .story { grid-template-columns: .95fr 1.05fr; }
-    }
-
-    .steps {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 10px;
-    }
-
-    .step {
-      background: rgba(255,255,255,.76);
-      border: 1px solid var(--border-soft);
-      border-radius: var(--radius-sm);
-      padding: 12px;
-      box-shadow: 0 6px 16px rgba(0,0,0,.05);
-      position: relative;
-      overflow: hidden;
-    }
-
-    .step:before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      opacity: 0;
-      background: linear-gradient(90deg, rgba(85,0,169,.09), rgba(232,0,90,.06));
-      transition: opacity .25s ease;
-      pointer-events: none;
-    }
-
-    .step.active {
-      border-color: rgba(85,0,169,.25);
-      box-shadow: 0 16px 30px rgba(85,0,169,.10);
-      outline: var(--ring-strong);
-    }
-
-    .step.active:before { opacity: 1; }
-
-    .step .h {
+    /* ===== DATA FLOW ===== */
+    .flow-steps {
       display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 10px;
+      align-items: flex-start;
+      gap: 0;
+      position: relative;
+    }
+
+    .flow-step {
+      flex: 1;
+      text-align: center;
+      position: relative;
+      padding: 0 20px;
+    }
+
+    .flow-step::after {
+      content: '';
+      position: absolute;
+      top: 28px;
+      right: -50%;
+      width: 100%;
+      height: 2px;
+      background: var(--border);
+    }
+
+    .flow-step:last-child::after {
+      display: none;
+    }
+
+    .flow-num {
+      width: 56px;
+      height: 56px;
+      background: var(--cog-navy);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 20px;
+      font-weight: 700;
+      margin: 0 auto 16px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .flow-num.neuro-step {
+      background: linear-gradient(135deg, var(--cog-teal), var(--accent-green));
+      box-shadow: 0 0 20px rgba(0, 180, 216, 0.3);
+    }
+
+    .flow-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-dark);
       margin-bottom: 8px;
     }
 
-    .step .h strong {
+    .flow-desc {
       font-size: 13px;
-      color: var(--bt-purple);
-      letter-spacing: .2px;
+      color: var(--text-body);
+      max-width: 200px;
+      margin: 0 auto;
     }
 
-    .step .h span {
-      font-family: var(--mono);
-      font-size: 11px;
-      font-weight: 900;
-      color: rgba(232,0,90,.85);
+    /* ===== UNDER THE HOOD ===== */
+    .hood-section {
+      background: var(--cog-navy);
+      color: white;
+      padding: 80px 60px;
     }
 
-    .step p {
-      margin: 0;
-      font-size: 12px;
-      color: var(--text-secondary);
-      font-weight: 700;
-      line-height: 1.55;
+    .hood-inner {
+      max-width: 1400px;
+      margin: 0 auto;
     }
 
-    .legend {
-      background: rgba(255,255,255,.76);
-      border: 1px solid var(--border-soft);
-      border-radius: var(--radius-sm);
-      padding: 12px;
-      box-shadow: 0 6px 16px rgba(0,0,0,.05);
+    .hood-header {
+      text-align: center;
+      margin-bottom: 60px;
     }
 
-    .legend-row {
+    .hood-header h2 {
+      font-size: 36px;
+      margin-bottom: 16px;
+    }
+
+    .hood-header p {
+      font-size: 16px;
+      color: rgba(255, 255, 255, 0.7);
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    .hood-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+    }
+
+    .hood-card {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 32px;
+    }
+
+    .hood-card-header {
       display: flex;
       align-items: center;
-      gap: 10px;
-      margin: 8px 0;
-      font-size: 12px;
-      color: var(--text-secondary);
-      font-weight: 800;
+      gap: 12px;
+      margin-bottom: 16px;
     }
 
-    .swatch {
-      width: 16px;
-      height: 16px;
-      border-radius: 5px;
-      box-shadow: var(--ring);
+    .hood-card-icon {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, var(--cog-teal), var(--accent-green));
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
     }
 
-    .swatch.p { background: rgba(85,0,169,.60); }
-    .swatch.a { background: rgba(232,0,90,.55); }
-    .swatch.s { background: rgba(32,201,151,.55); }
+    .hood-card h4 {
+      font-size: 16px;
+      font-weight: 600;
+    }
 
-    footer {
-      margin-top: 18px;
+    .hood-card p {
+      font-size: 14px;
+      color: rgba(255, 255, 255, 0.7);
+      line-height: 1.6;
+      margin-bottom: 16px;
+    }
+
+    .hood-specs {
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
       padding-top: 16px;
-      border-top: 1px solid rgba(233,236,239,.65);
-      color: var(--text-secondary);
-      font-size: 12px;
-      font-weight: 700;
     }
 
-    @media (prefers-reduced-motion: reduce) {
-      .edge.animated, .pulse, .dot { animation: none !important; }
-      .step:before { transition: none !important; }
+    .hood-spec {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+
+    .hood-spec-label {
+      color: rgba(255, 255, 255, 0.5);
+    }
+
+    .hood-spec-value {
+      color: var(--cog-teal);
+      font-weight: 600;
+    }
+
+    /* ===== FOOTER ===== */
+    .footer {
+      background: #0a0a20;
+      color: rgba(255, 255, 255, 0.7);
+      padding: 40px 60px;
+      text-align: center;
+      font-size: 13px;
+    }
+
+    .footer strong {
+      color: white;
+    }
+
+    /* ===== RESPONSIVE ===== */
+    @media (max-width: 1200px) {
+      .benefits-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .hood-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .neuro-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .challenge-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .hero h1 {
+        font-size: 36px;
+      }
+
+      .section,
+      .neuro-section,
+      .hood-section {
+        padding: 60px 24px;
+      }
+
+      .benefits-grid,
+      .hood-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .flow-steps {
+        flex-direction: column;
+        gap: 40px;
+      }
+
+      .flow-step::after {
+        display: none;
+      }
     }
   </style>
 </head>
+
 <body>
-  <header>
-    <div class="wrap">
-      <div class="topbar">
-        <div class="brand">
-          <img src="../images/cog-logo.jpeg" alt="Cognizant" />
-          <div class="title">
-            <strong>Athena · Solution Architecture</strong>
-            <span>Infographic (Audience-ready)</span>
-          </div>
-        </div>
-        <nav class="nav" aria-label="Page sections">
-          <a class="chip" href="#architecture"><small>01</small> Architecture</a>
-          <a class="chip" href="#flows"><small>02</small> Flows</a>
-          <a class="chip" href="#guardrails"><small>03</small> Guardrails</a>
-        </nav>
+
+  <!-- HEADER -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo-group">
+        <img src="../images/cog-logo.jpeg" alt="Cognizant" class="logo-img">
+        <div class="logo-divider"></div>
+        <span class="logo-text">Athena Agentic Desktop</span>
       </div>
+      <div class="neuro-badge">Powered by Neuro® SAN</div>
     </div>
   </header>
 
-  <main>
-    <div class="wrap">
-      <section class="hero">
-        <div class="card hero-copy">
-          <h1 class="h1">Real-time agent desktop with <strong>LLM orchestration</strong>, <strong>SSE streaming</strong>, and <strong>MCP → Graph</strong> execution.</h1>
-          <p class="lede">
-            This infographic explains the end-to-end architecture of the Agentic Unified Desktop (“Athena”):
-            from customer utterances to insight widgets, and from deterministic action badges to real Microsoft 365 admin outcomes.
-          </p>
-          <div class="badges" aria-label="Highlights">
-            <div class="badge"><b>LLM</b> widgets in JSON</div>
-            <div class="badge"><b>SSE</b> live Customer 360</div>
-            <div class="badge"><b>MCP</b> deterministic actions</div>
-            <div class="badge"><b>Graph</b> real tenant ops</div>
-          </div>
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-inner">
+      <p class="hero-eyebrow">Enterprise AI Solution</p>
+      <h1>Transforming Contact Centers with Agentic Intelligence</h1>
+      <p class="hero-lead">
+        Athena is a next-generation unified desktop that empowers contact center agents with real-time customer
+        insights,
+        intelligent action recommendations, and seamless Microsoft 365 integration—all orchestrated by the
+        <strong style="color: var(--cog-teal);">Cognizant Neuro® SAN</strong> multi-agent framework.
+      </p>
+      <div class="hero-highlight">
+        <div class="hero-highlight-icon">🧠</div>
+        <div class="hero-highlight-text">
+          Core Engine: <strong>Neuro® SAN Orchestrator</strong> — Multi-agent collaboration for intelligent
+          decision-making
         </div>
-
-        <div class="card hero-meta" aria-label="Key entry points">
-          <div class="meta-grid">
-            <div class="meta">
-              <div class="k">Desktop Backend</div>
-              <div class="v">src/server.js</div>
-            </div>
-            <div class="meta">
-              <div class="k">Insight Endpoint</div>
-              <div class="v">POST /api/v1/get-insights</div>
-            </div>
-            <div class="meta">
-              <div class="k">External Chat</div>
-              <div class="v">POST /api/v1/external-chat</div>
-            </div>
-            <div class="meta">
-              <div class="k">SSE Stream</div>
-              <div class="v">GET /api/v1/stream/customer-360/:id</div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="architecture" class="section">
-        <div class="card infographic full" aria-label="Animated architecture map">
-          <div class="panel canvas">
-            <h2>Architecture Map <span class="tag">Animated</span></h2>
-
-            <svg class="svg" viewBox="0 0 1100 520" role="img" aria-label="Architecture diagram: client to Athena to MCP to Microsoft Graph">
-              <defs>
-                <linearGradient id="gradPrimary" x1="0" x2="1">
-                  <stop offset="0" stop-color="rgba(85,0,169,.70)" />
-                  <stop offset="1" stop-color="rgba(232,0,90,.65)" />
-                </linearGradient>
-                <linearGradient id="gradStream" x1="0" x2="1">
-                  <stop offset="0" stop-color="rgba(32,201,151,.60)" />
-                  <stop offset="1" stop-color="rgba(85,0,169,.55)" />
-                </linearGradient>
-              </defs>
-
-              <!-- Background dots -->
-              <g opacity=".9">
-                <circle class="dot" cx="155" cy="74" r="4" fill="rgba(85,0,169,.35)" />
-                <circle class="dot" cx="920" cy="96" r="4" fill="rgba(232,0,90,.30)" />
-                <circle class="dot" cx="880" cy="430" r="4" fill="rgba(32,201,151,.26)" />
-                <circle class="dot" cx="220" cy="430" r="4" fill="rgba(85,0,169,.22)" />
-              </g>
-
-              <!-- Clusters -->
-              <g class="cluster">
-                <rect x="40" y="88" width="250" height="330" rx="18" />
-                <text x="60" y="118">Clients</text>
-
-                <rect x="325" y="52" width="460" height="410" rx="22" />
-                <text x="345" y="82">Agentic Unified Desktop (Node/Express)</text>
-
-                <rect x="820" y="108" width="240" height="150" rx="18" />
-                <text x="840" y="138">MCP Layer</text>
-
-                <rect x="820" y="292" width="240" height="170" rx="18" />
-                <text x="840" y="322">Microsoft 365</text>
-              </g>
-
-              <!-- Nodes -->
-              <g class="node" transform="translate(70 140)">
-                <rect width="190" height="70" rx="14" />
-                <text class="title" x="16" y="28">Agent Desktop UI</text>
-                <text class="sub" x="16" y="48">public/ (SPA)</text>
-              </g>
-
-              <g class="node" transform="translate(70 236)">
-                <rect width="190" height="70" rx="14" />
-                <text class="title" x="16" y="28">CX Demo</text>
-                <text class="sub" x="16" y="48">proxy + customer UI</text>
-              </g>
-
-              <g class="node" transform="translate(360 118)">
-                <rect width="390" height="76" rx="16" />
-                <text class="title" x="18" y="30">API Surface</text>
-                <text class="sub" x="18" y="52">/api/v1/external-chat · /get-insights · /agent-reply</text>
-              </g>
-
-              <g class="node" transform="translate(360 216)">
-                <rect width="390" height="70" rx="16" />
-                <text class="title" x="18" y="28">LLM Orchestrator</text>
-                <text class="sub" x="18" y="48">llmOrchestrator.js (widgets + actions)</text>
-              </g>
-
-              <g class="node" transform="translate(360 304)">
-                <rect width="390" height="70" rx="16" />
-                <text class="title" x="18" y="28">M365 Action Executor</text>
-                <text class="sub" x="18" y="48">m365ActionExecutor.js (deterministic)</text>
-              </g>
-
-              <g class="node" transform="translate(360 392)">
-                <rect width="390" height="50" rx="16" />
-                <text class="title" x="18" y="30">SSE Stream</text>
-                <text class="sub" x="160" y="30">/stream/customer-360/:id</text>
-              </g>
-
-              <g class="node" transform="translate(850 162)">
-                <rect width="180" height="70" rx="14" />
-                <text class="title" x="16" y="28">MCP Client</text>
-                <text class="sub" x="16" y="48">stdio child proc</text>
-              </g>
-
-              <g class="node" transform="translate(850 346)">
-                <rect width="180" height="86" rx="14" />
-                <text class="title" x="16" y="28">m365-admin-mcp</text>
-                <text class="sub" x="16" y="48">Graph tools</text>
-                <text class="sub" x="16" y="66">client credentials</text>
-              </g>
-
-              <g class="node" transform="translate(850 448)">
-                <rect width="180" height="50" rx="14" />
-                <text class="title" x="16" y="30">Microsoft Graph</text>
-                <text class="sub" x="130" y="30">v1.0</text>
-              </g>
-
-              <!-- Edges (requests) -->
-              <path class="edge primary animated" d="M260 175 C 300 175, 310 160, 360 154" />
-              <path class="edge primary animated slow" d="M260 272 C 300 272, 310 220, 360 154" />
-
-              <path class="edge accent animated" d="M750 338 C 800 338, 818 260, 850 198" />
-              <path class="edge accent animated slow" d="M750 338 C 800 338, 818 320, 850 389" />
-              <path class="edge accent animated" d="M940 432 C 940 440, 940 444, 940 448" />
-
-              <!-- Streaming back to clients -->
-              <path class="edge stream animated" d="M360 416 C 290 416, 280 420, 260 440" />
-              <path class="edge stream animated slow" d="M360 416 C 290 416, 220 398, 165 306" />
-
-              <!-- Pulses -->
-              <circle class="pulse" cx="360" cy="154" r="6" fill="rgba(85,0,169,.60)" />
-              <circle class="pulse fast" cx="750" cy="338" r="6" fill="rgba(232,0,90,.55)" />
-              <circle class="pulse" cx="360" cy="416" r="6" fill="rgba(32,201,151,.55)" />
-            </svg>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="panel">
-            <h2>What runs where <span class="tag">Modules</span></h2>
-            <p>
-              Athena is the orchestration hub. It produces action badges and widgets, streams updates via SSE, and executes Microsoft 365 admin actions via MCP.
-            </p>
-
-            <div class="list">
-              <div class="item">
-                <div class="label">UI (Browser)</div>
-                <p class="desc">Renders widgets, subscribes to SSE, and triggers badge executions.</p>
-              </div>
-              <div class="item">
-                <div class="label">Athena API</div>
-                <p class="desc">Handles <span class="code">/external-chat</span>, <span class="code">/get-insights</span>, <span class="code">/agent-reply</span>, and <span class="code">/stream</span>.</p>
-              </div>
-              <div class="item">
-                <div class="label">LLM Orchestrator</div>
-                <p class="desc">Prompts + normalizes JSON widgets and recommended actions.</p>
-              </div>
-              <div class="item">
-                <div class="label">M365 Action Executor</div>
-                <p class="desc">Executes deterministic <span class="code">M365_ACTION</span> payloads via MCP → Graph.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="flows" class="section">
-        <div class="card full">
-          <div class="panel">
-            <h2>End-to-end flows <span class="tag">Scroll</span></h2>
-            <p>
-              This is the full “customer → insights → agent action → execution” lifecycle.
-              As you scroll, each step highlights to match the animated map.
-            </p>
-
-            <div class="story">
-              <div class="steps" id="steps" aria-label="Architecture steps">
-                <div class="step" data-focus="insight">
-                  <div class="h"><strong>Customer message arrives</strong> <span>01</span></div>
-                  <p>Customer utterance enters via <span class="code">POST /api/v1/external-chat</span> (direct UI or CX demo proxy).</p>
-                </div>
-                <div class="step" data-focus="orchestrate">
-                  <div class="h"><strong>Insights are orchestrated</strong> <span>02</span></div>
-                  <p>Backend calls <span class="code">/api/v1/get-insights</span> → LLM orchestrator produces widget JSON + suggested actions.</p>
-                </div>
-                <div class="step" data-focus="stream">
-                  <div class="h"><strong>UI updates in real-time</strong> <span>03</span></div>
-                  <p>Latest snapshots broadcast through <span class="code">GET /api/v1/stream/customer-360/:id</span> (SSE).</p>
-                </div>
-                <div class="step" data-focus="execute">
-                  <div class="h"><strong>Agent clicks a badge</strong> <span>04</span></div>
-                  <p>Actions contain a deterministic <span class="code">M365_ACTION</span> payload, executed server-side.</p>
-                </div>
-                <div class="step" data-focus="mcp">
-                  <div class="h"><strong>MCP tools run</strong> <span>05</span></div>
-                  <p>Athena spawns an MCP client (stdio) and calls tools exposed by <span class="code">m365-admin-mcp</span>.</p>
-                </div>
-                <div class="step" data-focus="graph">
-                  <div class="h"><strong>Graph changes happen</strong> <span>06</span></div>
-                  <p>MCP server executes Microsoft Graph calls (create/disable/delete users, list SKUs, assign licenses).</p>
-                </div>
-              </div>
-
-              <div class="legend" aria-label="Legend">
-                <div class="legend-row"><span class="swatch p" aria-hidden="true"></span> Request/Orchestration paths</div>
-                <div class="legend-row"><span class="swatch s" aria-hidden="true"></span> SSE streaming paths</div>
-                <div class="legend-row"><span class="swatch a" aria-hidden="true"></span> Deterministic action execution</div>
-                <p style="margin:10px 0 0; font-size:12px; color:var(--text-secondary); font-weight:700; line-height:1.55;">
-                  This page is safe to share: it contains no secrets.
-                  For a technical reference diagram, see <span class="code">docs/architecture.html</span>.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="guardrails" class="section">
-        <div class="card">
-          <div class="panel">
-            <h2>Safety & controls <span class="tag">Guardrails</span></h2>
-            <p>
-              Destructive operations are gated to prevent mistakes. If the user identity is ambiguous, Athena asks for a UPN before proceeding.
-            </p>
-            <div class="list">
-              <div class="item">
-                <div class="label">UPN-first for delete/disable</div>
-                <p class="desc">Never delete/disable by display name alone when multiple matches exist.</p>
-              </div>
-              <div class="item">
-                <div class="label">LLM-assisted entity extraction</div>
-                <p class="desc">If required fields are missing, Athena uses a JSON extractor and/or requests specifics from the agent.</p>
-              </div>
-              <div class="item">
-                <div class="label">Deterministic execution</div>
-                <p class="desc">Actions execute through typed <span class="code">M365_ACTION</span> payloads rather than free-form text.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="panel">
-            <h2>Audience talking points <span class="tag">Wow</span></h2>
-            <p>
-              A single architecture that blends real-time agent experience with enterprise-grade admin execution.
-              Built to demonstrate speed, safety, and operational realism.
-            </p>
-            <div class="list">
-              <div class="item">
-                <div class="label">Real tenant impact</div>
-                <p class="desc">Graph-backed license counts and user lifecycle operations (not mocked).</p>
-              </div>
-              <div class="item">
-                <div class="label">Live orchestration</div>
-                <p class="desc">Widgets + next best actions evolve in-session and stream via SSE.</p>
-              </div>
-              <div class="item">
-                <div class="label">Composable extensibility</div>
-                <p class="desc">Add new tools and actions via MCP without redesigning the UI.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <footer class="wrap">
-        Tip: for offline sharing, send this HTML file plus the logo at <span class="code">images/cog-logo.jpeg</span>.
-      </footer>
+      </div>
     </div>
-  </main>
+  </section>
 
-  <script>
-    (function () {
-      const steps = Array.from(document.querySelectorAll('.step'));
-      if (!steps.length) return;
+  <!-- THE CHALLENGE & SOLUTION -->
+  <section class="section">
+    <div class="challenge-grid">
+      <div class="challenge-text">
+        <h3>The Challenge</h3>
+        <p>Traditional contact center desktops struggle with fragmented data, slow response times, and limited
+          intelligence.</p>
+        <ul class="challenge-list">
+          <li>Agents toggle between 5–10 disconnected systems per call</li>
+          <li>Customer context is lost between interactions</li>
+          <li>Manual lookup delays average 45 seconds per query</li>
+          <li>No proactive recommendations—agents react, not anticipate</li>
+        </ul>
+      </div>
+      <div class="challenge-text">
+        <h3>The Athena Solution</h3>
+        <p>A unified, AI-powered desktop that brings intelligence directly to the agent's fingertips.</p>
+        <ul class="challenge-list solution-list">
+          <li>Single pane of glass with Customer 360 view</li>
+          <li>Real-time streaming updates via SSE</li>
+          <li>Neuro® SAN agents analyze intent and recommend actions</li>
+          <li>One-click execution of M365 admin tasks via MCP</li>
+        </ul>
+      </div>
+    </div>
+  </section>
 
-      const setActive = (el) => {
-        steps.forEach(s => s.classList.toggle('active', s === el));
-      };
+  <!-- NEURO SAN SECTION -->
+  <section class="neuro-section">
+    <div class="neuro-inner">
+      <div class="neuro-grid">
+        <div class="neuro-content">
+          <h2>At the Core: <span>Neuro® SAN</span> Orchestrator</h2>
+          <p>
+            Athena's intelligence is powered by <strong>Cognizant Neuro® SAN</strong> (Semantic Agent Network)—a
+            sophisticated
+            multi-agent orchestration framework that coordinates specialized AI agents to understand intent, retrieve
+            context,
+            reason over data, and recommend next-best-actions.
+          </p>
+          <p>
+            Unlike simple LLM wrappers, Neuro® SAN enables true agentic collaboration. Each agent specializes in a
+            domain—customer
+            history, sentiment analysis, action planning, or compliance—and the orchestrator synthesizes their outputs
+            into
+            coherent, actionable insights.
+          </p>
 
-      const observer = new IntersectionObserver((entries) => {
-        entries
-          .filter(e => e.isIntersecting)
-          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)
-          .slice(0, 1)
-          .forEach(e => setActive(e.target));
-      }, {
-        root: null,
-        threshold: [0.2, 0.35, 0.5, 0.65, 0.8]
-      });
+          <div class="neuro-features">
+            <div class="neuro-feature">
+              <div class="neuro-feature-icon">🔄</div>
+              <div>
+                <h4>Multi-Agent Orchestration</h4>
+                <p>Specialized agents collaborate under Neuro® SAN coordination</p>
+              </div>
+            </div>
+            <div class="neuro-feature">
+              <div class="neuro-feature-icon">🎯</div>
+              <div>
+                <h4>Intent-Driven Routing</h4>
+                <p>Semantic understanding routes queries to the right agent network</p>
+              </div>
+            </div>
+            <div class="neuro-feature">
+              <div class="neuro-feature-icon">⚡</div>
+              <div>
+                <h4>Streaming Responses</h4>
+                <p>Real-time SSE streaming for progressive UI updates</p>
+              </div>
+            </div>
+          </div>
+        </div>
 
-      steps.forEach(s => observer.observe(s));
-      setActive(steps[0]);
-    })();
-  </script>
+        <div class="neuro-diagram">
+          <p class="neuro-diagram-title">Agent Network Topology</p>
+          <div class="neuro-hub">
+            <strong>Neuro® SAN</strong>
+            <span>Orchestrator</span>
+          </div>
+          <div class="neuro-satellites">
+            <div class="satellite">Intent Agent</div>
+            <div class="satellite">Context Agent</div>
+            <div class="satellite">Insight Agent</div>
+            <div class="satellite">Action Agent</div>
+            <div class="satellite">Compliance Agent</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- KEY CAPABILITIES -->
+  <section class="section">
+    <div class="section-header">
+      <p class="section-eyebrow">Key Capabilities</p>
+      <h2 class="section-title">What Athena Delivers</h2>
+      <p class="section-subtitle">Intelligent features that transform agent productivity and customer satisfaction.</p>
+    </div>
+
+    <div class="benefits-grid">
+      <div class="benefit-card">
+        <div class="benefit-icon">📊</div>
+        <h3 class="benefit-title">Customer 360</h3>
+        <p class="benefit-desc">Unified view of customer history, preferences, and interactions—updated in real-time via
+          SSE.</p>
+      </div>
+
+      <div class="benefit-card">
+        <div class="benefit-icon">💡</div>
+        <h3 class="benefit-title">Adaptive Widgets</h3>
+        <p class="benefit-desc">Dynamic UI components showing sentiment, risk scores, and next-best-actions based on
+          conversation context.</p>
+      </div>
+
+      <div class="benefit-card">
+        <div class="benefit-icon">🔧</div>
+        <h3 class="benefit-title">One-Click Actions</h3>
+        <p class="benefit-desc">Execute M365 admin operations (create user, assign license) directly from action badges
+          via MCP.</p>
+      </div>
+
+      <div class="benefit-card">
+        <div class="benefit-icon">🛡️</div>
+        <h3 class="benefit-title">Guardrails & Trust</h3>
+        <p class="benefit-desc">Deterministic execution for compliance-critical operations with full audit trails.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ARCHITECTURE DIAGRAM -->
+  <section class="section arch-section">
+    <div class="section-header">
+      <p class="section-eyebrow">Technical Architecture</p>
+      <h2 class="section-title">System Overview</h2>
+      <p class="section-subtitle">How Athena connects browser clients to Neuro® SAN orchestration, LLM services, and
+        Microsoft Graph.</p>
+    </div>
+
+    <div class="arch-container">
+      <!-- Mermaid.js Diagram - Clean and Professional -->
+      <div class="mermaid" id="architecture-diagram">
+        flowchart TB
+        subgraph CLIENTS["🖥️ PRESENTATION LAYER"]
+        direction LR
+        AgentDesktop["<b>Agent Desktop SPA</b><br /><small>Vanilla JS · :3001</small>"]
+        VodafoneDemo["<b>Vodafone Marketplace</b><br /><small>Customer Portal · :4002</small>"]
+        SSEClient["<b>SSE Client</b><br /><small>EventSource API</small>"]
+        end
+
+        subgraph ATHENA["⚙️ APPLICATION LAYER — Athena Backend"]
+        direction TB
+        API["<b>REST API Gateway</b><br /><small>Express.js · /api/v1/*</small>"]
+        Orchestrator["<b>LLM Orchestrator</b><br /><small>llmOrchestrator.js</small>"]
+        MCPClient["<b>MCP Client</b><br /><small>m365ActionExecutor.js</small>"]
+        State[("<b>In-Memory State</b><br /><small>conversationStore<br />customer360Cache</small>")]
+        end
+
+        subgraph NEURO["🧠 INTEGRATION LAYER — Neuro® SAN"]
+        direction LR
+        NeuroCore["<b>Neuro® SAN Core</b><br /><small>Semantic Agent Network</small>"]
+        Agents["<b>Agent Networks</b><br /><small>Intent · Context · Action</small>"]
+        Tools["<b>Tool Registry</b><br /><small>graph.* operations</small>"]
+        MCPServer["<b>m365-admin-mcp</b><br /><small>MCP Server · stdio</small>"]
+        end
+
+        subgraph EXTERNAL["☁️ EXTERNAL SERVICES"]
+        direction LR
+        OpenAI["<b>Azure OpenAI</b><br /><small>GPT-4o · Fallback</small>"]
+        Graph["<b>Microsoft Graph</b><br /><small>v1.0 API</small>"]
+        Entra["<b>Entra ID</b><br /><small>OAuth 2.0</small>"]
+        NeuroAPI["<b>Neuro® SAN API</b><br /><small>HTTP + SSE</small>"]
+        end
+
+        %% Client to API flows
+        AgentDesktop -->|"HTTP POST"| API
+        VodafoneDemo -->|"HTTP POST"| API
+        API -->|"SSE Stream"| SSEClient
+
+        %% Internal flows
+        API --> Orchestrator
+        API --> State
+        Orchestrator --> MCPClient
+
+        %% Neuro SAN flows
+        Orchestrator -.->|"Neuro® SAN"| NeuroCore
+        NeuroCore --> Agents
+        NeuroCore --> Tools
+        MCPClient -.->|"stdio"| MCPServer
+
+        %% External flows
+        NeuroCore -->|"HTTP/SSE"| NeuroAPI
+        Orchestrator -->|"HTTPS"| OpenAI
+        MCPServer -->|"Graph API"| Graph
+        MCPServer -->|"OAuth"| Entra
+
+        %% Styling
+        classDef clientStyle fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#92400e
+        classDef athenaStyle fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#1e40af
+        classDef neuroStyle fill:#dcfce7,stroke:#22c55e,stroke-width:3px,color:#166534
+        classDef externalStyle fill:#f0fdfa,stroke:#14b8a6,stroke-width:2px,color:#0f766e
+
+        class AgentDesktop,VodafoneDemo,SSEClient clientStyle
+        class API,Orchestrator,MCPClient,State athenaStyle
+        class NeuroCore,Agents,Tools,MCPServer neuroStyle
+        class OpenAI,Graph,Entra,NeuroAPI externalStyle
+      </div>
+
+      <!-- Legend -->
+      <div
+        style="display: flex; gap: 32px; margin-top: 24px; padding: 16px; background: #f8fafc; border-radius: 8px; font-size: 12px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div style="width: 16px; height: 16px; background: #fef3c7; border: 2px solid #f59e0b; border-radius: 4px;">
+          </div>
+          <span>Presentation Layer</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div style="width: 16px; height: 16px; background: #dbeafe; border: 2px solid #3b82f6; border-radius: 4px;">
+          </div>
+          <span>Application Layer</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div style="width: 16px; height: 16px; background: #dcfce7; border: 3px solid #22c55e; border-radius: 4px;">
+          </div>
+          <span>Neuro® SAN Integration</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div style="width: 16px; height: 16px; background: #f0fdfa; border: 2px solid #14b8a6; border-radius: 4px;">
+          </div>
+          <span>External Services</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div style="width: 24px; height: 2px; border-top: 2px dashed #22c55e;"></div>
+          <span>Neuro® SAN Flow</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DATA FLOW -->
+  <section class="section">
+    <div class="section-header">
+      <p class="section-eyebrow">Data Flow</p>
+      <h2 class="section-title">From Customer Utterance to Intelligent Action</h2>
+      <p class="section-subtitle">Neuro® SAN orchestrates the entire journey from signal to insight to execution.</p>
+    </div>
+
+    <div class="flow-steps">
+      <div class="flow-step">
+        <div class="flow-num">1</div>
+        <h4 class="flow-title">Signal Capture</h4>
+        <p class="flow-desc">Customer message arrives via chat or voice API.</p>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-num neuro-step">2</div>
+        <h4 class="flow-title">Neuro® SAN Orchestration</h4>
+        <p class="flow-desc">Multi-agent network analyzes intent, retrieves context, generates insights.</p>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-num">3</div>
+        <h4 class="flow-title">Widget Rendering</h4>
+        <p class="flow-desc">Adaptive UI components display Customer 360, sentiment, NBA.</p>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-num">4</div>
+        <h4 class="flow-title">Action Execution</h4>
+        <p class="flow-desc">Agent clicks badge; MCP executes M365 operations via Graph.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- UNDER THE HOOD -->
+  <section class="hood-section">
+    <div class="hood-inner">
+      <div class="hood-header">
+        <p class="section-eyebrow" style="color: var(--cog-teal);">Under the Hood</p>
+        <h2>Technical Deep Dive</h2>
+        <p>The engineering decisions and technologies that make Athena reliable, fast, and secure.</p>
+      </div>
+
+      <div class="hood-grid">
+        <div class="hood-card">
+          <div class="hood-card-header">
+            <div class="hood-card-icon">🔌</div>
+            <h4>API Layer</h4>
+          </div>
+          <p>RESTful endpoints built on Node.js/Express. Stateless design with in-memory stores for demo simplicity.
+            Supports both synchronous responses and SSE streaming.</p>
+          <div class="hood-specs">
+            <div class="hood-spec">
+              <span class="hood-spec-label">Runtime</span>
+              <span class="hood-spec-value">Node.js 18+</span>
+            </div>
+            <div class="hood-spec">
+              <span class="hood-spec-label">Framework</span>
+              <span class="hood-spec-value">Express.js</span>
+            </div>
+            <div class="hood-spec">
+              <span class="hood-spec-label">Streaming</span>
+              <span class="hood-spec-value">SSE (EventSource)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="hood-card">
+          <div class="hood-card-header">
+            <div class="hood-card-icon">🧠</div>
+            <h4>Neuro® SAN Integration</h4>
+          </div>
+          <p>Primary orchestration via Neuro® SAN semantic agent networks. Supports streaming chat mode for progressive
+            token delivery. Falls back to Azure OpenAI/GPT-4o when configured.</p>
+          <div class="hood-specs">
+            <div class="hood-spec">
+              <span class="hood-spec-label">Protocol</span>
+              <span class="hood-spec-value">HTTP + SSE</span>
+            </div>
+            <div class="hood-spec">
+              <span class="hood-spec-label">Timeout</span>
+              <span class="hood-spec-value">Configurable (env)</span>
+            </div>
+            <div class="hood-spec">
+              <span class="hood-spec-label">Networks</span>
+              <span class="hood-spec-value">Per-widget routing</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="hood-card">
+          <div class="hood-card-header">
+            <div class="hood-card-icon">🔗</div>
+            <h4>MCP + Graph Execution</h4>
+          </div>
+          <p>Model Context Protocol (MCP) for deterministic tool execution. Spawns stdio child process to m365-admin-mcp
+            server. Executes Graph operations with Entra ID client credentials.</p>
+          <div class="hood-specs">
+            <div class="hood-spec">
+              <span class="hood-spec-label">Protocol</span>
+              <span class="hood-spec-value">MCP (stdio)</span>
+            </div>
+            <div class="hood-spec">
+              <span class="hood-spec-label">Auth</span>
+              <span class="hood-spec-value">Client Credentials</span>
+            </div>
+            <div class="hood-spec">
+              <span class="hood-spec-label">Graph API</span>
+              <span class="hood-spec-value">v1.0</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="hood-card">
+          <div class="hood-card-header">
+            <div class="hood-card-icon">📡</div>
+            <h4>Real-Time Streaming</h4>
+          </div>
+          <p>Server-Sent Events (SSE) push Customer 360 updates, agent replies, and insight refreshes to all connected
+            clients. De-duplication via traceId.</p>
+          <div class="hood-specs">
+            <div class="hood-spec">
+              <span class="hood-spec-label">Transport</span>
+              <span class="hood-spec-value">SSE (text/event-stream)</span>
+            </div>
+            <div class="hood-spec">
+              <span class="hood-spec-label">Persistence</span>
+              <span class="hood-spec-value">In-memory (demo)</span>
+            </div>
+            <div class="hood-spec">
+              <span class="hood-spec-label">Dedup Key</span>
+              <span class="hood-spec-value">traceId</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="hood-card">
+          <div class="hood-card-header">
+            <div class="hood-card-icon">🎨</div>
+            <h4>Frontend Architecture</h4>
+          </div>
+          <p>Vanilla JavaScript SPA for maximum portability. No framework dependencies. Widget renderer dynamically
+            constructs UI from JSON payloads.</p>
+          <div class="hood-specs">
+            <div class="hood-spec">
+              <span class="hood-spec-label">Stack</span>
+              <span class="hood-spec-value">HTML/CSS/JS</span>
+            </div>
+            <div class="hood-spec">
+              <span class="hood-spec-label">Build</span>
+              <span class="hood-spec-value">None (static)</span>
+            </div>
+            <div class="hood-spec">
+              <span class="hood-spec-label">State</span>
+              <span class="hood-spec-value">DOM + EventSource</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="hood-card">
+          <div class="hood-card-header">
+            <div class="hood-card-icon">🔒</div>
+            <h4>Security & Compliance</h4>
+          </div>
+          <p>Environment-based secrets (never committed). Entra ID app registration with least-privilege Graph
+            permissions. Deterministic execution paths for auditability.</p>
+          <div class="hood-specs">
+            <div class="hood-spec">
+              <span class="hood-spec-label">Secrets</span>
+              <span class="hood-spec-value">.env (gitignored)</span>
+            </div>
+            <div class="hood-spec">
+              <span class="hood-spec-label">Auth Flow</span>
+              <span class="hood-spec-value">Client Credentials</span>
+            </div>
+            <div class="hood-spec">
+              <span class="hood-spec-label">Permissions</span>
+              <span class="hood-spec-value">Least Privilege</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="footer">
+    <p><strong>Athena Agentic Unified Desktop</strong> · Powered by Cognizant Neuro® SAN</p>
+    <p style="margin-top: 8px;">© 2026 Cognizant. All rights reserved.</p>
+  </footer>
+
 </body>
+
 </html>
