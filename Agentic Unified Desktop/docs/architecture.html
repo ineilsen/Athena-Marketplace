@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Athena – Architecture</title>
+  <meta name="description" content="Athena Agentic Unified Desktop – architecture overview with MCP + Microsoft Graph." />
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: Canvas;
+      --fg: CanvasText;
+      --muted: color-mix(in oklab, CanvasText 70%, Canvas 30%);
+      --border: color-mix(in oklab, CanvasText 18%, Canvas 82%);
+      --card: color-mix(in oklab, Canvas 92%, CanvasText 8%);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      --radius: 14px;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--fg);
+      line-height: 1.45;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      backdrop-filter: blur(12px);
+      background: color-mix(in oklab, Canvas 88%, transparent 12%);
+      border-bottom: 1px solid var(--border);
+      z-index: 10;
+    }
+
+    .wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 18px 18px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+    }
+
+    .sub {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    main { padding: 22px 0 44px; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+
+    @media (min-width: 980px) {
+      .grid { grid-template-columns: 1fr 1fr; }
+      .span2 { grid-column: span 2; }
+    }
+
+    .card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--card);
+      padding: 16px;
+    }
+
+    .card h2 {
+      margin: 0 0 10px;
+      font-size: 14px;
+      letter-spacing: 0.2px;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .card p {
+      margin: 0 0 12px;
+      color: color-mix(in oklab, CanvasText 88%, Canvas 12%);
+      font-size: 14px;
+    }
+
+    code, pre {
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    pre {
+      margin: 12px 0 0;
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      overflow: auto;
+      background: color-mix(in oklab, Canvas 96%, CanvasText 4%);
+    }
+
+    .mermaid {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      background: color-mix(in oklab, Canvas 96%, CanvasText 4%);
+      overflow: auto;
+    }
+
+    .kvs {
+      display: grid;
+      grid-template-columns: 150px 1fr;
+      gap: 10px 14px;
+      align-items: start;
+      margin-top: 8px;
+    }
+    .kvs div {
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: color-mix(in oklab, Canvas 96%, CanvasText 4%);
+    }
+    .kvs .k { color: var(--muted); font-size: 12px; }
+    .kvs .v { font-family: var(--mono); font-size: 12px; }
+
+    footer {
+      border-top: 1px solid var(--border);
+      margin-top: 22px;
+      padding-top: 18px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>Athena – Architecture</h1>
+      <div class="sub">Agentic Unified Desktop · MCP (stdio) · Microsoft Graph</div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="grid">
+      <section class="card span2">
+        <h2>Overview</h2>
+        <p>
+          Athena is a Node/Express backend that serves a vanilla JS desktop UI and orchestrates “insight widgets”.
+          It can also execute deterministic Microsoft 365 admin actions using an MCP server that wraps Microsoft Graph.
+        </p>
+        <div class="kvs">
+          <div class="k">Desktop backend</div><div class="v">Agentic Unified Desktop/src/server.js</div>
+          <div class="k">API base</div><div class="v">/api/v1/*</div>
+          <div class="k">SSE stream</div><div class="v">/api/v1/stream/customer-360/:id</div>
+          <div class="k">M365 executor</div><div class="v">src/services/m365ActionExecutor.js</div>
+          <div class="k">MCP server</div><div class="v">m365-admin-mcp</div>
+        </div>
+      </section>
+
+      <section class="card span2">
+        <h2>Component Diagram</h2>
+        <div class="mermaid">
+flowchart LR
+  subgraph Client[Browser Clients]
+    AUI["Athena Agent Desktop SPA<br/>public/"]
+    CX["Agentic CX Demo<br/>proxy + customer UI"]
+  end
+
+  subgraph Athena[Agentic Unified Desktop - Node/Express]
+    API[/REST API<br/>/api/v1/*/]
+    SSE[/SSE Stream<br/>/api/v1/stream/customer-360/:id/]
+    LLM["LLM Orchestrator<br/>src/services/llmOrchestrator.js"]
+    EXEC["M365 Action Executor<br/>src/services/m365ActionExecutor.js"]
+  end
+
+  subgraph MCP[MCP Layer]
+    MCPCLIENT["MCP Client<br/>stdio child process"]
+    MCPSERVER["m365-admin-mcp<br/>Node MCP server"]
+  end
+
+  subgraph Graph[Microsoft 365]
+    MSGRAPH[("Microsoft Graph<br/>v1.0")]
+  end
+
+  AUI -->|fetch insights| API
+  AUI -->|subscribe updates| SSE
+  CX -->|/chat/send -> /external-chat| API
+
+  API --> LLM
+  API -->|execute badge action| EXEC
+  LLM -->|prompts + JSON widgets| API
+  API -->|broadcast payloads| SSE
+
+  EXEC --> MCPCLIENT --> MCPSERVER --> MSGRAPH
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>State & Streaming</h2>
+        <p>
+          The backend uses in-memory stores (cleared on restart) and broadcasts updates to connected clients via SSE.
+        </p>
+        <div class="mermaid">
+flowchart TB
+  subgraph Store[In-memory State - clears on restart]
+    CH[(conversationStore)]
+    EA[(executedActionsStore)]
+    C360[(lastCustomer360)]
+  end
+
+  subgraph Inputs[Inputs]
+    CUST[Customer message]
+    AGENT[Agent click or reply]
+  end
+
+  subgraph API[Athena API]
+    EXT[/POST /api/v1/external-chat/]
+    INS[/POST /api/v1/get-insights/]
+    REPLY[/POST /api/v1/agent-reply/]
+    STREAM[/GET /api/v1/stream/customer-360/:id/]
+  end
+
+  CUST --> EXT
+  EXT --> CH
+  EXT --> INS
+  INS --> C360
+  INS --> STREAM
+
+  AGENT -->|exec badge| INS
+  AGENT -->|send reply| REPLY
+  REPLY --> CH
+  REPLY --> STREAM
+
+  STREAM -->|SSE push| UI[Browser clients]
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>M365 Execution</h2>
+        <p>
+          Clicking a badge that includes <code>M365_ACTION</code> executes a deterministic flow via MCP and Graph.
+        </p>
+        <div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant UI as Agent Desktop UI
+  participant API as Athena API (/api/v1/get-insights)
+  participant EXEC as m365ActionExecutor
+  participant MCP as MCP client (stdio)
+  participant SRV as m365-admin-mcp
+  participant G as Microsoft Graph
+
+  UI->>API: Click "Create user" badge
+  API->>EXEC: executeM365Action(M365_ACTION payload)
+  EXEC->>EXEC: Validate required entities
+  opt Missing or low-quality name/UPN
+    EXEC->>API: call utility LLM JSON extractor
+    API-->>EXEC: {upn, displayName, usageLocation, license}
+  end
+  EXEC->>MCP: tool graph.createUser
+  MCP->>SRV: graph.createUser(userPrincipalName, displayName, usageLocation)
+  SRV->>G: POST /users
+  G-->>SRV: 201 user
+  SRV-->>MCP: user
+  MCP-->>EXEC: user
+  opt License requested
+    EXEC->>MCP: tool graph.listSubscribedSkus
+    MCP->>SRV: graph.listSubscribedSkus()
+    SRV->>G: GET /subscribedSkus
+    G-->>SRV: skus
+    SRV-->>MCP: skus
+    MCP-->>EXEC: skus
+    EXEC->>MCP: tool graph.assignLicense
+    MCP->>SRV: graph.assignLicense(userIdOrUpn, addSkuIds)
+    SRV->>G: POST /users/{id}/assignLicense
+    G-->>SRV: 200
+    SRV-->>MCP: result
+    MCP-->>EXEC: result
+  end
+  EXEC-->>API: summary + findings
+  API-->>UI: Render execute result
+        </div>
+      </section>
+
+      <section class="card span2">
+        <h2>Notes</h2>
+        <p>
+          This is a documentation-only page. It renders Mermaid client-side for easy sharing.
+          GitHub README rendering can use Mermaid blocks directly; this page is useful when you want a polished single-view export.
+        </p>
+        <pre><code>Open: Agentic Unified Desktop/docs/architecture.html</code></pre>
+      </section>
+
+      <footer class="span2">
+        Generated as part of the Athena docs. No secrets are included.
+      </footer>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'neutral'
+    });
+  </script>
+</body>
+</html>
